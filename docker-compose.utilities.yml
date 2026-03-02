@@ -267,6 +267,7 @@ services:
         ipv4_address: 172.20.0.19
     environment:
       - TZ=${TZ}
+      - SECRET_ENCRYPTION_KEY=${HOMARR_SECRET_KEY}
     volumes:
       - homarr-config:/appdata/configs
       - homarr-data:/appdata/data
