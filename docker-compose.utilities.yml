@@ -14,6 +14,10 @@ volumes:
   beszel-data:
   diun-data:
   configarr-repos:
+  tautulli-config:
+  tailscale-data:
+  homarr-config:
+  homarr-data:
 
 #########################
 # Networks              #
@@ -193,6 +197,85 @@ services:
       - DIUN_NOTIF_WEBHOOK_HEADERS_0_NAME=Content-Type
       - DIUN_NOTIF_WEBHOOK_HEADERS_0_VALUE=application/json
     logging: *default-logging
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TAUTULLI - Plex monitoring and analytics. Track watch history, user stats,
+  # streaming quality, and library growth. Connects to Plex via API.
+  # Access: tautulli.lan | NAS_IP:8181 (LAN-only)
+  # ═══════════════════════════════════════════════════════════════════════════
+  tautulli:
+    image: lscr.io/linuxserver/tautulli:latest
+    container_name: tautulli
+    restart: always
+    ports:
+      - "8181:8181"
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.17
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - tautulli-config:/config
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-sSf", "http://localhost:8181/status", "-o", "/dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TAILSCALE - VPN mesh network. Provides secure remote access to NAS and
+  # admin UIs without exposing ports. Access all services via Tailscale IP.
+  # No web UI on NAS — manage at https://login.tailscale.com
+  # ═══════════════════════════════════════════════════════════════════════════
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: tailscale
+    restart: always
+    hostname: ${TAILSCALE_HOSTNAME:-nas}
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.18
+    environment:
+      - TS_AUTHKEY=${TAILSCALE_AUTHKEY}
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=true
+    volumes:
+      - tailscale-data:/var/lib/tailscale
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    logging: *default-logging
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # HOMARR - Service dashboard/homepage. Quick-access to all your services.
+  # Access: homarr.lan | NAS_IP:7575 (LAN-only)
+  # ═══════════════════════════════════════════════════════════════════════════
+  homarr:
+    image: ghcr.io/homarr-labs/homarr:latest
+    container_name: homarr
+    restart: always
+    ports:
+      - "7575:7575"
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.19
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - homarr-config:/appdata/configs
+      - homarr-data:/appdata/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7575"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   # ═══════════════════════════════════════════════════════════════════════════
   # CONFIGARR - Syncs TRaSH Guides quality profiles and custom formats to
