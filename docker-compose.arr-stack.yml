@@ -17,9 +17,8 @@ volumes:
   sonarr-config:
   prowlarr-config:
   radarr-config:
-  jellyfin-config:
-  jellyfin-cache:
-  seerr-config:
+  plex-config:
+  overseerr-config:
   bazarr-config:
   pihole-etc-pihole:
   pihole-etc-dnsmasq:
@@ -255,26 +254,35 @@ services:
       start_period: 60s
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # JELLYFIN - Media server. Stream your movies and TV shows like Netflix.
-  # Access: jellyfin.lan | jellyfin.yourdomain.com | NAS_IP:8096
+  # PLEX - Media server. Stream your movies and TV shows like Netflix.
+  # Access: plex.lan | plex.yourdomain.com | NAS_IP:32400/web
   # ═══════════════════════════════════════════════════════════════════════════
-  jellyfin:
-    image: jellyfin/jellyfin:10.11
-    container_name: jellyfin
+  plex:
+    image: lscr.io/linuxserver/plex:latest
+    container_name: plex
     ports:
-      - "8096:8096"     # Web UI
-      - "7359:7359/udp" # Client discovery (auto-detect on LAN)
-      - "1900:1900/udp" # DLNA
+      - "32400:32400"     # Web UI
+      - "1900:1900/udp"   # DLNA
+      - "5353:5353/udp"   # Bonjour/Avahi discovery
+      - "8324:8324"       # Roku companion
+      - "32410:32410/udp" # GDM network discovery
+      - "32412:32412/udp" # GDM network discovery
+      - "32413:32413/udp" # GDM network discovery
+      - "32414:32414/udp" # GDM network discovery
+      - "32469:32469"     # DLNA
     environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
       - TZ=${TZ}
+      - VERSION=docker
+      - PLEX_CLAIM=${PLEX_CLAIM}  # Get from https://plex.tv/claim (expires in 4 min)
     # Hardware transcoding (Intel Quick Sync) - remove these 4 lines if no Intel GPU
     devices:
       - /dev/dri:/dev/dri
     group_add:
       - "${RENDER_GROUP_ID:-0}"  # Find ID: getent group render | cut -d: -f3
     volumes:
-      - jellyfin-config:/config
-      - jellyfin-cache:/cache
+      - plex-config:/config
       - ${MEDIA_ROOT}/media:/data/media:ro
     networks:
       arr-stack:
@@ -282,7 +290,7 @@ services:
     restart: always
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:32400/identity"]
       interval: 1m
       timeout: 30s
       retries: 2
@@ -323,13 +331,12 @@ services:
       start_period: 30s
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # SEERR (formerly Jellyseerr) - Request portal. Users request movies/shows here.
-  # Access: seerr.lan | seerr.yourdomain.com | NAS_IP:5055
+  # OVERSEERR - Request portal. Users request movies/shows here.
+  # Access: overseerr.lan | overseerr.yourdomain.com | NAS_IP:5055
   # ═══════════════════════════════════════════════════════════════════════════
-  seerr:
-    image: ghcr.io/seerr-team/seerr:v3.1.0
-    init: true
-    container_name: seerr
+  overseerr:
+    image: lscr.io/linuxserver/overseerr:latest
+    container_name: overseerr
     depends_on:
       gluetun:
         condition: service_healthy  # Needs gluetun to reach Sonarr/Radarr
@@ -337,14 +344,14 @@ services:
     ports:
       - "5055:5055"
     environment:
-      - LOG_LEVEL=info
+      - PUID=${PUID}
+      - PGID=${PGID}
       - TZ=${TZ}
-      - PORT=5055
     networks:
       arr-stack:
         ipv4_address: 172.20.0.8
     volumes:
-      - seerr-config:/app/config
+      - overseerr-config:/app/config
     restart: always
     logging: *default-logging
     healthcheck:

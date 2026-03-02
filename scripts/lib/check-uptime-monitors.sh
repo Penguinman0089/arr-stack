@@ -12,8 +12,8 @@ check_uptime_monitors() {
         "Beszel"
         "duc"
         "FlareSolverr"
-        "Jellyfin"
-        "Seerr"
+        "Plex"
+        "Overseerr"
         "Pi-hole"
         "Prowlarr"
         "qBittorrent"
@@ -70,7 +70,7 @@ check_uptime_monitors() {
     done
 
     # Check for unexpected monitors (excluding known extras like Home Assistant, Reolink, external checks)
-    local known_extras=("Home Assistant" "Reolink NVR" "Cloudflared Metrics" "Jellyfin (External)")
+    local known_extras=("Home Assistant" "Reolink NVR" "Cloudflared Metrics" "Plex (External)")
     while IFS= read -r monitor; do
         [[ -z "$monitor" ]] && continue
         local found=0

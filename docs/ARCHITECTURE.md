@@ -8,9 +8,9 @@ When someone requests a movie or TV show, here's what happens:
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌───────────┐     ┌─────────────┐     ┌──────────┐
-│   Seerr     │────▶│ Sonarr/Radarr│────▶│ Prowlarr  │────▶│ qBittorrent │────▶│ Jellyfin │
-│ (request)   │     │ (manage)     │     │ (indexers)│     │   SABnzbd   │     │ (watch)  │
-│             │     │              │     │           │     │ (download)  │     │          │
+│ Overseerr  │────▶│ Sonarr/Radarr│────▶│ Prowlarr  │────▶│ qBittorrent │────▶│   Plex   │
+│ (request)  │     │ (manage)     │     │ (indexers)│     │   SABnzbd   │     │ (watch)  │
+│            │     │              │     │           │     │ (download)  │     │          │
 └─────────────┘     └──────────────┘     └───────────┘     └─────────────┘     └──────────┘
       │                    │                   │                  │                  │
       │                    │                   │                  │                  │
@@ -18,12 +18,12 @@ When someone requests a movie or TV show, here's what happens:
                            Through VPN (Gluetun)                              Not through VPN
 ```
 
-1. **Seerr** - User requests a show or movie
+1. **Overseerr** - User requests a show or movie
 2. **Sonarr/Radarr** - Searches for releases, sends to download client
 3. **Prowlarr** - Provides indexers (torrent + Usenet) to Sonarr/Radarr
 4. **qBittorrent** - Downloads torrents (through VPN)
 5. **SABnzbd** - Downloads from Usenet (through VPN)
-6. **Jellyfin** - Streams the completed files
+6. **Plex** - Streams the completed files
 
 > **Why both qBittorrent and SABnzbd?** Torrents are free but can be slow/unreliable. Usenet costs ~$5/month but is faster, more reliable, and has no ratio requirements. Most users configure both - Sonarr/Radarr will try Usenet first, fall back to torrents.
 
@@ -31,7 +31,7 @@ When someone requests a movie or TV show, here's what happens:
 
 **Why VPN?** Your ISP can see BitTorrent traffic. The VPN encrypts this so they only see "encrypted traffic to VPN server".
 
-**Why not everything through VPN?** Streaming from Jellyfin doesn't need protection (you're watching your own files) and VPN would slow it down.
+**Why not everything through VPN?** Streaming from Plex doesn't need protection (you're watching your own files) and VPN would slow it down.
 
 ```
                               ┌─────────────────────────────────────────┐
@@ -47,7 +47,7 @@ Internet ◄───VPN Tunnel───────│  qBit  Sonarr  Radarr  P
                                     ─ ─ ─ ─ ─ ─ ─│─ ─ ─ ─ ─ ─ ─
                                                  │
                               ┌──────────────────┴──────────────────────┐
-Internet ◄──Cloudflare Tunnel─│  Jellyfin    Seerr                     │
+Internet ◄──Cloudflare Tunnel─│  Plex        Overseerr                  │
   (remote)                    │  (stream)    (requests)                 │
                               │                                         │
 LAN only ◄────────────────────│  Pi-hole     Sonarr      Radarr   ...  │
@@ -64,7 +64,7 @@ Services inside Gluetun's network use `localhost` to talk to each other. Service
 ```
 Inside Gluetun (same network):       Outside Gluetun:
 ─────────────────────────────        ─────────────────
-Sonarr → qBittorrent                 Seerr → Sonarr
+Sonarr → qBittorrent                 Overseerr → Sonarr
   └── localhost:8085                   └── gluetun:8989
 
 Radarr → qBittorrent                 Bazarr → Radarr
@@ -84,8 +84,8 @@ arr-stack network (172.20.0.0/24)
 │ IP           │ Service      │ Notes                          │ Required for     │
 ├──────────────┼──────────────┼────────────────────────────────┼──────────────────│
 │ 172.20.0.3   │ Gluetun      │ VPN gateway + arr services     │ Core             │
-│ 172.20.0.4   │ Jellyfin     │ Media server                   │ Core             │
-│ 172.20.0.8   │ Seerr        │ Request portal                 │ Core             │
+│ 172.20.0.4   │ Plex         │ Media server                   │ Core             │
+│ 172.20.0.8   │ Overseerr    │ Request portal                 │ Core             │
 │ 172.20.0.9   │ Bazarr       │ Subtitles                      │ Core             │
 │ 172.20.0.5   │ Pi-hole      │ DNS server                     │ Core             │
 │ 172.20.0.2   │ Traefik      │ Reverse proxy                  │ + local DNS      │
@@ -104,8 +104,8 @@ arr-stack network (172.20.0.0/24)
 │                             CORE                                         │
 │                      Access via NAS_IP:port                              │
 │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐            │
-│  │ :8096     │  │ :8989     │  │ :7878     │  │ :5055     │  ...       │
-│  │ Jellyfin  │  │ Sonarr    │  │ Radarr    │  │   Seerr   │            │
+│  │ :32400    │  │ :8989     │  │ :7878     │  │ :5055     │  ...       │
+│  │ Plex      │  │ Sonarr    │  │ Radarr    │  │ Overseerr │            │
 │  └───────────┘  └───────────┘  └───────────┘  └───────────┘            │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -115,7 +115,7 @@ arr-stack network (172.20.0.0/24)
 │                          + LOCAL DNS                                     │
 │                      Access via .lan domains                             │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐               │
-│  │ jellyfin.lan  │  │ sonarr.lan    │  │ radarr.lan    │  ...          │
+│  │ plex.lan        │  │ sonarr.lan      │  │ radarr.lan      │  ...          │
 │  └───────────────┘  └───────────────┘  └───────────────┘               │
 │                                                                          │
 │  Your device → Pi-hole (DNS) → Traefik → Service                        │
@@ -127,7 +127,7 @@ arr-stack network (172.20.0.0/24)
 │                        + REMOTE ACCESS                                   │
 │                   Access from outside your home                          │
 │  ┌─────────────────────┐  ┌─────────────────────┐                       │
-│  │ jellyfin.domain.com │  │ seerr.domain.com     │  ...                 │
+│  │ plex.domain.com     │  │ overseerr.domain.com│  ...                 │
 │  └─────────────────────┘  └─────────────────────┘                       │
 │                                                                          │
 │  Phone → Cloudflare → Tunnel → Traefik → Service                        │

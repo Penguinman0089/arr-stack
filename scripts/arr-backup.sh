@@ -50,7 +50,7 @@ ensure_services_running() {
   COMPOSE_FILE="/volume1/docker/arr-stack/docker-compose.arr-stack.yml"
   [ -f "$COMPOSE_FILE" ] || return 0
 
-  CRITICAL="gluetun pihole sonarr radarr prowlarr qbittorrent jellyfin sabnzbd"
+  CRITICAL="gluetun pihole sonarr radarr prowlarr qbittorrent plex sabnzbd"
   STOPPED=""
 
   for svc in $CRITICAL; do
@@ -199,18 +199,17 @@ VOLUME_SUFFIXES=(
 )
 
 # Request manager - detect which volume exists
-if docker volume inspect "${VOLUME_PREFIX}_seerr-config" &>/dev/null; then
-  VOLUME_SUFFIXES+=(seerr-config)
-elif docker volume inspect "${VOLUME_PREFIX}_overseerr-config" &>/dev/null; then
+if docker volume inspect "${VOLUME_PREFIX}_overseerr-config" &>/dev/null; then
   VOLUME_SUFFIXES+=(overseerr-config)
+elif docker volume inspect "${VOLUME_PREFIX}_seerr-config" &>/dev/null; then
+  VOLUME_SUFFIXES+=(seerr-config)
 fi
 
 # Large volumes excluded by default (regenerate by re-scanning/re-downloading):
-#   jellyfin-config (407MB) - library metadata, watch history (re-scan to rebuild)
+#   plex-config (500MB)     - library metadata, watch history (re-scan to rebuild)
 #   sonarr-config (43MB)    - series database (re-scan to rebuild)
 #   radarr-config (110MB)   - movie database (re-scan to rebuild)
 #   pihole-etc-pihole (138MB) - blocklists auto-download on startup
-#   jellyfin-cache          - transcoding cache, fully regenerates
 #   duc-index               - disk usage index, regenerates on restart
 
 STEP="backing up .env"

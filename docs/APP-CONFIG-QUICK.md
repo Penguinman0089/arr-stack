@@ -10,8 +10,8 @@ The [configure-apps.sh](../scripts/configure-apps.sh) script automates ~22 confi
 
 Work through these in order. Each app needs you to create an account or complete a first-run wizard before anything else works.
 
-**Jellyfin** — `http://NAS_IP:8096`
-Complete the setup wizard (language, admin user, etc.). Skip adding libraries for now — you'll do that in Step 3.
+**Plex** — `http://NAS_IP:32400/web`
+Sign in with your Plex account. Skip adding libraries for now — you'll do that in Step 3.
 
 **qBittorrent** — `http://NAS_IP:8085`
 Get the temporary password:
@@ -70,12 +70,13 @@ Preview what it will do without making changes:
 
 The script handles qBittorrent, Sonarr, Radarr, Prowlarr, and Bazarr. Complete these remaining services in order:
 
-### 1. Jellyfin — Add libraries
+### 1. Plex — Add libraries
 
-- Movies → Content type "Movies" → Folder `/data/media/movies`
-- TV Shows → Content type "Shows" → Folder `/data/media/tv`
+1. Settings → Manage → Libraries → Add Library
+2. Movies → Add folders → `/data/media/movies`
+3. TV Shows → Add folders → `/data/media/tv`
 
-> **Optional:** [Enable hardware transcoding](APP-CONFIG-ADVANCED.md#hardware-transcoding-intel-quick-sync) for GPU-accelerated playback (recommended for Ugreen NAS).
+> **Optional:** [Enable hardware transcoding](APP-CONFIG-ADVANCED.md#hardware-transcoding-intel-quick-sync) for GPU-accelerated playback (recommended for Ugreen NAS). Requires Plex Pass.
 
 ### 2. SABnzbd — Set download folders (skip if not using Usenet)
 
@@ -90,11 +91,12 @@ Config (⚙️) → Folders → set **absolute paths**:
 1. Indexers (left sidebar) → + → search by name → add your torrent indexers
 2. If using Usenet: add a Usenet indexer the same way (e.g., NZBGeek, DrunkenSlug)
 
-### 4. Seerr — Connect to Jellyfin and *arrs
+### 4. Overseerr — Connect to Plex and *arrs
 
 1. Open `http://NAS_IP:5055`
-2. Sign in with Jellyfin: URL `http://jellyfin:8096`, enter your Jellyfin credentials
-3. Settings → Services → Add Radarr:
+2. Sign in with your Plex account
+3. Settings → Plex → enter Plex server details (hostname: `plex`, port: `32400`)
+4. Settings → Services → Add Radarr:
    - Hostname: `gluetun`, Port: `7878`
    - External URL: `http://radarr.lan` (or `http://NAS_IP:7878`)
 4. Settings → Services → Add Sonarr:

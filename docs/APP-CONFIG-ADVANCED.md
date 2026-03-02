@@ -10,7 +10,7 @@ Optional tuning and advanced features. None of these are required — your stack
 
 Recommended for Ugreen NAS (DXP4800+, etc.) with Intel CPUs. Enables GPU-accelerated transcoding — reduces CPU usage from ~80% to ~20%.
 
-> **No Intel GPU?** Remove the `devices:` and `group_add:` lines (4 lines total) from the jellyfin service in `docker-compose.arr-stack.yml`, or Jellyfin won't start.
+> **No Intel GPU?** Remove the `devices:` and `group_add:` lines (4 lines total) from the plex service in `docker-compose.arr-stack.yml`, or Plex won't start.
 
 **1. Find your render group ID:**
 ```bash
@@ -23,58 +23,43 @@ getent group render | cut -d: -f3
 RENDER_GROUP_ID=105  # Use the number from step 1
 ```
 
-**3. Recreate Jellyfin:**
+**3. Recreate Plex:**
 ```bash
-docker compose -f docker-compose.arr-stack.yml up -d jellyfin
+docker compose -f docker-compose.arr-stack.yml up -d plex
 ```
 
-**4. Configure Jellyfin:** Dashboard → Playback → Transcoding
-
-![Jellyfin transcoding settings](images/jellyfin/jellyfin-transcoding.png)
+**4. Configure Plex:** Settings → Transcoder
 
 **Key settings:**
-- **Hardware acceleration:** Intel QuickSync (QSV)
-- **Enable hardware decoding for:** H264, HEVC, MPEG2, VC1, VP8, VP9, HEVC 10bit, VP9 10bit
-- **Prefer OS native DXVA or VA-API hardware decoders:** ✅
-- **Enable hardware encoding:** ✅
-- **Enable Intel Low-Power H.264/HEVC encoders:** ✅
-- **Allow encoding in HEVC format:** ✅
-- **Enable VPP Tone mapping:** ✅
+- **Use hardware acceleration when available:** ✅
+- **Use hardware-accelerated video encoding:** ✅
+- **Maximum simultaneous video transcode:** Set based on your CPU
 
-**5. Configure Trickplay:** Dashboard → Playback → Trickplay
+> **Note:** Hardware transcoding requires a **Plex Pass** subscription.
 
-Trickplay generates preview thumbnails when you hover over the video timeline.
+**5. Verify it's working:**
 
-![Jellyfin trickplay settings](images/jellyfin/jellyfin-trickplay.png)
-
-**Enable these for GPU-accelerated thumbnail generation:**
-- **Enable hardware decoding:** ✅
-- **Enable hardware accelerated MJPEG encoding:** ✅
-- **Only generate images from key frames:** ✅ (faster, minimal quality impact)
-
-**6. Verify it's working:**
-
-1. Click your user icon → **Settings** → **Playback**
-2. Set **Quality** to a low value (e.g., 720p 1Mbps)
-3. Play a video and open **Playback Info** (⚙️ → Playback Info)
-4. Look for **"Transcoding framerate"** — should show **10x+ realtime** (e.g., 400+ fps)
+1. Play a video from a Plex client
+2. Set playback quality to a lower resolution (e.g., 720p 2Mbps) to force transcoding
+3. Open Plex Dashboard → check the "Now Playing" section
+4. Look for **(hw)** next to the transcode indicator — this confirms hardware transcoding
 5. Check CPU usage — should stay ~20-30% instead of 80%+
 
-If transcoding framerate is only ~1x (24-30 fps), hardware acceleration isn't working.
+If you don't see "(hw)", hardware acceleration isn't working.
 
 ---
 
 ## Kodi for Fire TV (Dolby Vision / TrueHD Atmos)
 
-**When to use Kodi instead of the Jellyfin app:**
+**When to use Kodi instead of the Plex app:**
 
-The Jellyfin Android TV app works well for most content. However, it may not properly pass through advanced audio/video formats to your AV receiver. If you're experiencing:
+The Plex app works well for most content. However, it may not properly pass through advanced audio/video formats to your AV receiver. If you're experiencing:
 
 - High CPU usage / transcoding on 4K HDR or Dolby Vision content
 - Audio being converted instead of passing through TrueHD Atmos or DTS-HD
 - Playback stuttering or buffering on high-bitrate files
 
-...try **Kodi with the Jellyfin add-on** instead. Kodi handles passthrough more reliably on Fire TV devices.
+...try **Kodi with the PlexKodiConnect add-on** instead. Kodi handles passthrough more reliably on Fire TV devices.
 
 **Step 1: Install Kodi on Fire TV (sideload via ADB)**
 
@@ -95,39 +80,17 @@ curl -L -o /tmp/kodi.apk "https://mirrors.kodi.tv/releases/android/arm/kodi-21.3
 adb install /tmp/kodi.apk
 ```
 
-**Step 2: Install Jellyfin add-on in Kodi**
+**Step 2: Install PlexKodiConnect in Kodi**
 
-First, push the Jellyfin repo to Fire TV:
-```bash
-curl -L -o /tmp/jellyfin-repo.zip "https://kodi.jellyfin.org/repository.jellyfin.kodi.zip"
-adb push /tmp/jellyfin-repo.zip /sdcard/Download/
-```
+Follow the [PlexKodiConnect installation guide](https://github.com/croneter/PlexKodiConnect/wiki/Installation) to add the repository and install the add-on.
 
-Then in Kodi on Fire TV:
-1. Settings → Add-ons → Install from zip file
-2. Enable unknown sources if prompted
-3. Select External storage → Download → `jellyfin-repo.zip`
-4. Wait for "Add-on installed" notification
-5. Install from repository → Jellyfin Kodi Add-ons → Video add-ons → Jellyfin → Install
+**Step 3: Connect and configure**
 
-**Step 3: Fix "Unable to connect" error**
+1. In Kodi, the PlexKodiConnect add-on should discover your Plex server
+2. Sign in with your Plex account
+3. Select your libraries to sync
 
-Jellyfin in Docker reports its internal Docker IP to clients, which they can't reach. Fix by setting the published server URI:
-
-```bash
-# SSH to NAS and run (replace NAS_IP with your actual NAS IP):
-docker exec jellyfin sed -i 's|<PublishedServerUriBySubnet />|<PublishedServerUriBySubnet><string>0.0.0.0/0=http://NAS_IP:8096</string></PublishedServerUriBySubnet>|' /config/config/network.xml
-
-docker compose -f docker-compose.arr-stack.yml restart jellyfin
-```
-
-**Step 4: Connect and configure**
-
-1. In Kodi, the Jellyfin add-on should auto-discover your server
-2. Select it and login with your Jellyfin credentials
-3. Choose **Add-on** mode when prompted
-
-**Step 5: Enable passthrough in Kodi**
+**Step 4: Enable passthrough in Kodi**
 
 Settings → System → Audio:
 - Allow passthrough: **On**
@@ -151,7 +114,7 @@ echo 4096 > /sys/block/md1/md/stripe_cache_size
 '
 ```
 
-Add a root crontab `@reboot` job to persist across reboots (do **not** use `/etc/rc.local` — UGOS overwrites it on firmware updates). See [Troubleshooting: Jellyfin Video Stutters](TROUBLESHOOTING.md#jellyfin-video-stuttersfreezes-every-few-minutes) for full details.
+Add a root crontab `@reboot` job to persist across reboots (do **not** use `/etc/rc.local` — UGOS overwrites it on firmware updates). See [Troubleshooting: Plex Video Stutters](TROUBLESHOOTING.md#plex-video-stuttersfreezes-every-few-minutes) for full details.
 
 ---
 

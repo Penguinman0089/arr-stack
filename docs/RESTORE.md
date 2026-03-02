@@ -89,16 +89,16 @@ To restore just one service (e.g., after corrupted config):
 
 ```bash
 # Stop the service
-docker compose -f docker-compose.arr-stack.yml stop seerr
+docker compose -f docker-compose.arr-stack.yml stop overseerr
 
 # Restore from backup
 docker run --rm \
-  -v /tmp/arr-stack-backup-20250101/seerr-config:/source:ro \
-  -v arr-stack_seerr-config:/dest \
+  -v /tmp/arr-stack-backup-20250101/overseerr-config:/source:ro \
+  -v arr-stack_overseerr-config:/dest \
   alpine cp -a /source/. /dest/
 
 # Restart
-docker compose -f docker-compose.arr-stack.yml start seerr
+docker compose -f docker-compose.arr-stack.yml start overseerr
 ```
 
 ---
@@ -122,7 +122,7 @@ Some services may need post-restore steps:
 
 | Service | Post-restore action |
 |---------|-------------------|
-| Jellyfin | Run library scan (Dashboard > Libraries > Scan) |
+| Plex | Run library scan (Settings > Manage > Libraries > Scan) |
 | Sonarr/Radarr | Verify download clients are connected (Settings > Download Clients > Test) |
 | Prowlarr | Sync indexers (Settings > Apps > Sync App Indexers) |
 | Pi-hole | Verify upstream DNS (Settings > DNS) |

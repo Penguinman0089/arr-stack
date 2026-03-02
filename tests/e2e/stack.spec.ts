@@ -11,13 +11,13 @@ function screenshotPath(name: string) {
 // ─── Service ports ───────────────────────────────────────────────────────────
 
 const PORTS = {
-  jellyfin: 8096,
+  plex: 32400,
   sonarr: 8989,
   radarr: 7878,
   prowlarr: 9696,
   qbittorrent: 8085,
   sabnzbd: 8082,
-  seerr: 5055,
+  overseerr: 5055,
   bazarr: 6767,
   pihole: 8081,
 } as const;
@@ -39,111 +39,16 @@ async function addHeaderToAllRequests(page: import('@playwright/test').Page, nam
 // ─── UI screenshot tests ─────────────────────────────────────────────────────
 
 test.describe('UI screenshots', () => {
-  test('Jellyfin — login and screenshot home', async ({ page, context }) => {
+  test('Plex — login and screenshot home', async ({ page, context }) => {
     test.setTimeout(60_000);
-    const username = process.env.JELLYFIN_USERNAME;
-    const password = process.env.JELLYFIN_PASSWORD;
-    test.skip(!username || !password, 'JELLYFIN_USERNAME / JELLYFIN_PASSWORD not set');
+    const plexToken = process.env.PLEX_TOKEN;
+    test.skip(!plexToken, 'PLEX_TOKEN not set');
 
-    await page.goto(url('jellyfin'));
+    await page.goto(url('plex', `/web/index.html#!/?X-Plex-Token=${plexToken}`));
     await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(5_000);
 
-    // Click "Manual Login" if the user selection screen appears
-    const manualLogin = page.getByText('Manual Login');
-    if (await manualLogin.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await manualLogin.click();
-      await page.waitForLoadState('networkidle');
-    }
-
-    // Fill login form
-    const usernameInput = page.locator('input[id="txtManualName"], input[name="username"], input[placeholder*="ser"]').first();
-    const passwordInput = page.locator('input[id="txtManualPassword"], input[type="password"]').first();
-
-    if (await usernameInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-      await usernameInput.fill(username!);
-      await passwordInput.fill(password!);
-      await page.locator('button[type="submit"], button:has-text("Sign in")').first().click();
-      await page.waitForLoadState('networkidle');
-      // Wait for redirect away from login
-      await page.waitForFunction(() => !window.location.hash.includes('login'), { timeout: 10_000 });
-      await page.waitForLoadState('networkidle');
-    }
-
-    // Verify we're NOT on a login page
-    const pageUrl = page.url();
-    expect(pageUrl).not.toContain('login');
-
-    // Wait for media sections to render
-    await page.waitForTimeout(3_000);
-
-    // Remove lazy loading BEFORE scrolling so images load immediately when visible
-    await page.evaluate(() => {
-      document.querySelectorAll('img[loading="lazy"]').forEach(img => {
-        (img as HTMLImageElement).loading = 'eager';
-      });
-    });
-
-    // Scroll vertically through the page, and also scroll each horizontal carousel
-    await page.evaluate(async () => {
-      const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-      // Vertical scroll to trigger section rendering
-      const step = Math.max(200, window.innerHeight / 2);
-      for (let y = 0; y < document.body.scrollHeight; y += step) {
-        window.scrollTo(0, y);
-        await delay(200);
-      }
-      window.scrollTo(0, document.body.scrollHeight);
-      await delay(500);
-
-      // Scroll each horizontal carousel to the end and back
-      const scrollers = document.querySelectorAll('.itemsContainer, .scrollSlider, [class*="scroller"]');
-      for (const scroller of scrollers) {
-        if (scroller.scrollWidth > scroller.clientWidth) {
-          scroller.scrollLeft = scroller.scrollWidth;
-          await delay(500);
-          scroller.scrollLeft = 0;
-          await delay(200);
-        }
-      }
-    });
-
-    // Force-reload any images that still haven't loaded
-    await page.evaluate(async () => {
-      document.querySelectorAll('img').forEach(img => {
-        if (!img.complete || img.naturalWidth === 0) {
-          const src = img.src;
-          img.src = '';
-          img.src = src;
-        }
-      });
-      // Wait for all images to finish loading
-      await Promise.all(
-        Array.from(document.querySelectorAll('img'))
-          .filter(img => img.src)
-          .map(img => {
-            if (img.complete && img.naturalWidth > 0) return Promise.resolve();
-            return new Promise<void>(resolve => {
-              img.onload = () => resolve();
-              img.onerror = () => resolve();
-              setTimeout(resolve, 8_000);
-            });
-          })
-      );
-    });
-
-    // Hide blurhash canvas overlays so actual loaded images show through
-    await page.evaluate(() => {
-      document.querySelectorAll('canvas').forEach(c => {
-        (c as HTMLElement).style.opacity = '0';
-      });
-    });
-
-    // Scroll back to top for screenshot
-    await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(1_000);
-
-    await page.screenshot({ path: screenshotPath('jellyfin'), fullPage: true });
+    await page.screenshot({ path: screenshotPath('plex'), fullPage: true });
   });
 
   test('Sonarr — login and screenshot dashboard', async ({ page }) => {
@@ -240,14 +145,13 @@ test.describe('UI screenshots', () => {
     await page.screenshot({ path: screenshotPath('sabnzbd'), fullPage: true });
   });
 
-  test('Seerr — login and screenshot discover page', async ({ page }) => {
-    const username = process.env.JELLYFIN_USERNAME;
-    const password = process.env.JELLYFIN_PASSWORD;
-    test.skip(!username || !password, 'JELLYFIN_USERNAME / JELLYFIN_PASSWORD not set (Seerr uses Jellyfin SSO)');
+  test('Overseerr — login and screenshot discover page', async ({ page }) => {
+    const plexToken = process.env.PLEX_TOKEN;
+    test.skip(!plexToken, 'PLEX_TOKEN not set (Overseerr uses Plex auth)');
 
-    // Authenticate via Seerr's Jellyfin auth API
-    const authRes = await page.request.post(url('seerr', '/api/v1/auth/jellyfin'), {
-      data: { username, password },
+    // Authenticate via Overseerr's Plex auth API
+    const authRes = await page.request.post(url('overseerr', '/api/v1/auth/plex'), {
+      data: { authToken: plexToken },
     });
     expect(authRes.ok()).toBeTruthy();
 
@@ -268,12 +172,12 @@ test.describe('UI screenshots', () => {
       await page.context().addCookies(cookies);
     }
 
-    await page.goto(url('seerr', '/'));
+    await page.goto(url('overseerr', '/'));
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2_000);
 
     expect(page.url()).not.toContain('login');
-    await page.screenshot({ path: screenshotPath('seerr'), fullPage: true });
+    await page.screenshot({ path: screenshotPath('overseerr'), fullPage: true });
   });
 
   test('Bazarr — screenshot dashboard', async ({ page }) => {

@@ -22,10 +22,10 @@
 #   - Run on the NAS (not your dev machine)
 #
 # What stays manual after this script:
-#   - Jellyfin: initial wizard, libraries, hardware transcoding
+#   - Plex: sign in, libraries, hardware transcoding
 #   - qBittorrent: change default password
 #   - Prowlarr: add indexers (user-specific credentials)
-#   - Seerr: initial Jellyfin login + service connections
+#   - Overseerr: initial Plex login + service connections
 #   - SABnzbd: usenet provider credentials + folder config
 #   - Pi-hole: upstream DNS
 
@@ -506,10 +506,10 @@ fi
 
 echo ""
 echo "Remaining manual steps:"
-echo "  1. Jellyfin: initial wizard, libraries, hardware transcoding"
+echo "  1. Plex: sign in, add libraries, hardware transcoding"
 echo "  2. qBittorrent: change default password (Tools → Options → Web UI)"
 echo "  3. Prowlarr: add indexers (torrent/Usenet)"
-echo "  4. Seerr: initial setup + Jellyfin login"
+echo "  4. Overseerr: initial setup + Plex login"
 if $SABNZBD_RUNNING; then
     echo "  5. SABnzbd: usenet provider credentials"
     echo "  6. Pi-hole: upstream DNS"

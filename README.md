@@ -4,7 +4,7 @@
 
 <img align="right" width="45%" src="docs/images/demo/demo.gif">
 
-A Docker Compose stack for automated media management. Request a show or movie, it downloads and appears in Jellyfin—ready to watch, VPN-protected.
+A Docker Compose stack for automated media management. Request a show or movie, it downloads and appears in Plex—ready to watch, VPN-protected.
 
 Works on Ugreen, Synology, QNAP, or any Docker host.
 
@@ -15,9 +15,9 @@ Works on Ugreen, Synology, QNAP, or any Docker host.
 - **Production-ready** — Real healthchecks, auto-recovery when VPN reconnects, backup script. Not just "it runs."
 - **Battle-tested** — Edge cases found and fixed across multiple NAS setups. More resilient than most.
 - **Best practices built in** — Downloads appear instantly without using extra disk space, files are named consistently, and download settings are tuned for security and performance. Based on [TRaSH Guides](https://trash-guides.info/).
-- **Everything you need** — Jellyfin, Sonarr, Radarr, Prowlarr, Bazarr, Seerr, qBittorrent, SABnzbd, Pi-hole, Cloudflare Tunnel. Modular — skip what you don't need, add what you do (e.g. Lidarr).
+- **Everything you need** — Plex, Sonarr, Radarr, Prowlarr, Bazarr, Overseerr, qBittorrent, SABnzbd, Pi-hole, Cloudflare Tunnel. Modular — skip what you don't need, add what you do (e.g. Lidarr).
 - **Step-by-step guide** — Not just a docker-compose file in a repo.
-- **Flexible** — Supports 30+ VPN providers. Plex users can swap Jellyfin (see [setup guide](docs/SETUP.md)).
+- **Flexible** — Supports 30+ VPN providers. Jellyfin users can swap Plex (see [setup guide](docs/SETUP.md)).
 - **Privacy by default** — All downloads route through your VPN.
 
 <details>
@@ -38,16 +38,16 @@ Works on Ugreen, Synology, QNAP, or any Docker host.
 
 **The flow:** Someone requests a show → it downloads automatically → appears in your media library.
 
-Request: Seerr → Sonarr/Radarr → Prowlarr
+Request: Overseerr → Sonarr/Radarr → Prowlarr
 Download: qBittorrent (torrents) or SABnzbd (Usenet) — both via VPN (Gluetun)
-Watch: Jellyfin — locally or remotely via Traefik
+Watch: Plex — locally or remotely via Traefik
 
 **Choose your setup:**
 | Setup | How you access | What you need |
 |-------|----------------|---------------|
-| **Core** | `192.168.1.50:8096` | Just the stack |
-| **+ local DNS** | `jellyfin.lan` | Configure Pi-hole + add Traefik |
-| **+ remote access** | `jellyfin.yourdomain.com` | Add Cloudflare Tunnel |
+| **Core** | `192.168.1.50:32400/web` | Just the stack |
+| **+ local DNS** | `plex.lan` | Configure Pi-hole + add Traefik |
+| **+ remote access** | `plex.yourdomain.com` | Add Cloudflare Tunnel |
 
 ## Get Started
 
@@ -81,7 +81,7 @@ This code was generated with [Claude Code](https://claude.ai/claude-code) (Anthr
 
 ## License
 
-Documentation, configuration files, and examples in this repository are licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (Attribution-NonCommercial). Individual software components (Sonarr, Radarr, Jellyfin, etc.) retain their own licenses.
+Documentation, configuration files, and examples in this repository are licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) (Attribution-NonCommercial). Individual software components (Sonarr, Radarr, Plex, etc.) retain their own licenses.
 
 ## Acknowledgments
 

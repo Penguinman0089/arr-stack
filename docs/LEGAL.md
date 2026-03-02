@@ -16,12 +16,12 @@ All software included in this stack is **legal, open-source, and has legitimate 
 
 | Software | Use Cases |
 |----------|---------------------|
-| **Jellyfin** | Self-hosted media streaming (like a personal Netflix for content you own) |
+| **Plex** | Self-hosted media streaming (like a personal Netflix for content you own) |
 | **Sonarr/Radarr** | Media library organization, file renaming, metadata fetching |
 | **Prowlarr** | Search aggregator supporting Usenet providers, public trackers, and indexers |
 | **qBittorrent** | BitTorrent client - torrenting is a legal distribution method used for Linux, Creative Commons content, academic datasets, game patches, and other legal media |
 | **Bazarr** | Subtitle management for accessibility |
-| **Seerr** | Request management for household media libraries |
+| **Overseerr** | Request management for household media libraries |
 | **Gluetun VPN** | Network privacy and security |
 | **Traefik** | Reverse proxy and SSL certificate management |
 | **Pi-hole** | DNS-level ad blocking and network security |

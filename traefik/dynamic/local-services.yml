@@ -12,28 +12,15 @@
 http:
   routers:
     # === Media Services ===
-    jellyfin-lan:
-      rule: "Host(`jellyfin.lan`)"
+    plex-lan:
+      rule: "Host(`plex.lan`)"
       entryPoints: [web]
-      service: jellyfin-lan
+      service: plex-lan
 
-    seerr-lan:
-      rule: "Host(`seerr.lan`)"
+    overseerr-lan:
+      rule: "Host(`overseerr.lan`)"
       entryPoints: [web]
-      service: seerr-lan
-
-    # Legacy redirects (jellyseerr/jellyseer → seerr)
-    jellyseerr-lan:
-      rule: "Host(`jellyseerr.lan`)"
-      entryPoints: [web]
-      middlewares: [jellyseerr-redirect]
-      service: seerr-lan
-
-    jellyseer-lan:
-      rule: "Host(`jellyseer.lan`)"
-      entryPoints: [web]
-      middlewares: [jellyseerr-redirect]
-      service: seerr-lan
+      service: overseerr-lan
 
     # === *arr Stack (VPN-protected via Gluetun) ===
     sonarr-lan:
@@ -94,21 +81,16 @@ http:
       entryPoints: [web]
       service: beszel-lan
 
-  middlewares:
-    jellyseerr-redirect:
-      redirectRegex:
-        regex: "^http://jellyseer{1,2}[.]lan(.*)"
-        replacement: "http://seerr.lan${1}"
-        permanent: true
+  middlewares: {}
 
   services:
     # === Media Services ===
-    jellyfin-lan:
+    plex-lan:
       loadBalancer:
         servers:
-          - url: "http://172.20.0.4:8096"
+          - url: "http://172.20.0.4:32400"
 
-    seerr-lan:
+    overseerr-lan:
       loadBalancer:
         servers:
           - url: "http://172.20.0.8:5055"

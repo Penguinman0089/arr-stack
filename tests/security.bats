@@ -79,19 +79,19 @@ setup() {
     fi
 }
 
-@test "jellyfin media mounts are read-only" {
+@test "plex media mounts are read-only" {
     for f in $(get_compose_files); do
         local fname
         fname=$(basename "$f")
-        # Look for jellyfin service media mounts
-        local jellyfin_section
-        jellyfin_section=$(awk '/^  jellyfin:/{found=1; next} found && /^  [a-zA-Z#]/{found=0} found' "$f" 2>/dev/null) || continue
-        [[ -z "$jellyfin_section" ]] && continue
+        # Look for plex service media mounts
+        local plex_section
+        plex_section=$(awk '/^  plex:/{found=1; next} found && /^  [a-zA-Z#]/{found=0} found' "$f" 2>/dev/null) || continue
+        [[ -z "$plex_section" ]] && continue
         while IFS= read -r line; do
             # Check media volume mounts (movies, tv) are :ro
             if [[ "$line" == *"/media/"* ]] && [[ "$line" != *":ro"* ]]; then
-                fail "Jellyfin media mount in $fname is not read-only: $line"
+                fail "Plex media mount in $fname is not read-only: $line"
             fi
-        done <<< "$jellyfin_section"
+        done <<< "$plex_section"
     done
 }

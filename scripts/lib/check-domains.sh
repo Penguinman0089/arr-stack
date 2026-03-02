@@ -34,9 +34,8 @@ check_domains() {
 
     # .lan domains to check (via Pi-hole DNS)
     local lan_domains=(
-        "jellyfin.lan"
-        "seerr.lan"
-        "jellyseerr.lan"
+        "plex.lan"
+        "overseerr.lan"
         "sonarr.lan"
         "radarr.lan"
         "prowlarr.lan"
@@ -87,8 +86,8 @@ check_domains() {
     # External domains to check (only ones exposed via Cloudflare Tunnel)
     if [[ -n "$domain" ]]; then
         local external_domains=(
-            "jellyfin.$domain"
-            "seerr.$domain"
+            "plex.$domain"
+            "overseerr.$domain"
         )
 
         echo "    Checking external domains..."

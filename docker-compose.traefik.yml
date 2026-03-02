@@ -2,12 +2,12 @@
 # TRAEFIK - Reverse proxy for .lan domains and external access
 #
 # What it does:
-# - Enables .lan domains (e.g., jellyfin.lan) — requires Pi-hole for DNS
-# - Enables external access (e.g., jellyfin.yourdomain.com) — requires Cloudflared
+# - Enables .lan domains (e.g., plex.lan) — requires Pi-hole for DNS
+# - Enables external access (e.g., plex.yourdomain.com) — requires Cloudflared
 #
 # SSL: Cloudflare Tunnel handles HTTPS for external access. .lan domains use HTTP.
 #
-# You DON'T need this for Core setup (IP:port access like 192.168.1.50:8096).
+# You DON'T need this for Core setup (IP:port access like 192.168.1.50:32400).
 # You DO need this for .lan domains or external access.
 #
 # Access: traefik.lan | traefik.yourdomain.com | NAS_IP:9090

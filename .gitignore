@@ -1,5 +1,4 @@
 # Environment & Secrets
-.env
 .env.e2e
 .env.nas.backup
 *.key
@@ -29,7 +28,7 @@ cloudflared/cert.pem
 
 # Application Configs (these should be on NAS, not in repo)
 gluetun-config/
-seerr/
+overseerr/
 bazarr/
 notifiarr/
 homarr/

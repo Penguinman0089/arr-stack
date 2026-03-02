@@ -19,7 +19,7 @@ tunnel: YOUR_TUNNEL_ID
 credentials-file: /home/nonroot/.cloudflared/credentials.json
 
 ingress:
-  # Wildcard catches all subdomains (jellyfin, sonarr, radarr, etc.)
+  # Wildcard catches all subdomains (plex, sonarr, radarr, etc.)
   - hostname: "*.yourdomain.com"
     service: http://traefik:80
 

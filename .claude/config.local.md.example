@@ -28,10 +28,10 @@ Copy this file to `config.local.md` and fill in your values.
 | Gateway | 172.20.0.1 |
 | Traefik | 172.20.0.2 |
 | Gluetun | 172.20.0.3 |
-| Jellyfin | 172.20.0.4 |
+| Plex | 172.20.0.4 |
 | Pi-hole | 172.20.0.5 |
 | WireGuard | 172.20.0.6 |
-| Seerr | 172.20.0.8 |
+| Overseerr | 172.20.0.8 |
 | Bazarr | 172.20.0.9 |
 | Cloudflared | 172.20.0.12 |
 | Uptime Kuma | 172.20.0.13 |
@@ -44,8 +44,8 @@ Replace `yourdomain.com` with your actual domain:
 | Service | URL |
 |---------|-----|
 | Traefik Dashboard | https://traefik.yourdomain.com |
-| Jellyfin | https://jellyfin.yourdomain.com |
-| Seerr | https://seerr.yourdomain.com |
+| Plex | https://plex.yourdomain.com |
+| Overseerr | https://overseerr.yourdomain.com |
 | Sonarr | https://sonarr.yourdomain.com |
 | Radarr | https://radarr.yourdomain.com |
 | Prowlarr | https://prowlarr.yourdomain.com |
@@ -62,7 +62,7 @@ NAS LAN IP: `YOUR_NAS_LAN_IP` (or `your-nas.local`)
 | Service | URL |
 |---------|-----|
 | NAS Web UI | http://your-nas.local:8080 |
-| Jellyfin | http://your-nas.local:8096 |
+| Plex | http://your-nas.local:32400/web |
 | Sonarr | http://your-nas.local:8989 |
 | Radarr | http://your-nas.local:7878 |
 | Prowlarr | http://your-nas.local:9696 |

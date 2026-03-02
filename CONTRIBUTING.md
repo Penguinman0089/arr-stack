@@ -9,7 +9,7 @@ For contributors, forks, and anyone wanting to understand the project internals.
 ```
 ultimate-arr-stack/
 ├── docker-compose.traefik.yml      # Traefik reverse proxy
-├── docker-compose.arr-stack.yml    # Main media stack (Jellyfin)
+├── docker-compose.arr-stack.yml    # Main media stack (Plex)
 ├── docker-compose.utilities.yml    # Optional utilities (monitoring, disk usage)
 ├── docker-compose.cloudflared.yml  # Cloudflare tunnel
 ├── traefik/                        # Traefik configuration
@@ -17,7 +17,7 @@ ultimate-arr-stack/
 │   ├── traefik.yml                 # Your config (gitignored)
 │   └── dynamic/
 │       ├── tls.yml                 # TLS settings (generic, no customization needed)
-│       ├── vpn-services.yml.example    # Jellyfin routing template
+│       ├── vpn-services.yml.example    # Plex routing template
 │       ├── vpn-services.yml        # Your routing config (gitignored)
 │       └── utilities.yml           # Utilities routing (generic)
 ├── .env.example                    # Environment template
@@ -51,7 +51,7 @@ Internet → Cloudflare Tunnel (or Router Port Forward 80→8080, 443→8443)
                             ▼
            Traefik (listening on 8080/8443 on NAS)
                             │
-                            ├─► Jellyfin, Seerr, Bazarr (Direct)
+                            ├─► Plex, Overseerr, Bazarr (Direct)
                             │
                             └─► Gluetun (VPN Gateway)
                                     │
@@ -92,7 +92,7 @@ This project uses **separate Docker Compose files** for each layer:
         └── cloudflared/   # User-edited (bind mount)
 ```
 
-**Service data** (Sonarr, Radarr, Jellyfin, etc.) is stored in Docker named volumes (e.g., `arr-stack_sonarr-config`), not in the repo directory. Use `scripts/arr-backup.sh` to back them up.
+**Service data** (Sonarr, Radarr, Plex, etc.) is stored in Docker named volumes (e.g., `arr-stack_sonarr-config`), not in the repo directory. Use `scripts/arr-backup.sh` to back them up.
 
 ---
 

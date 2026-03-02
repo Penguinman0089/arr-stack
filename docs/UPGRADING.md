@@ -3,7 +3,7 @@
 Already running an earlier version? There are two types of upgrades:
 
 1. **Stack updates** — New features, bug fixes, compose changes from this repo
-2. **Container image updates** — Newer versions of Sonarr, Radarr, Jellyfin, etc.
+2. **Container image updates** — Newer versions of Sonarr, Radarr, Plex, etc.
 
 ## Stack Updates (this repo)
 
@@ -19,7 +19,7 @@ docker compose -f docker-compose.arr-stack.yml up -d --force-recreate  # Updates
 
 The `--force-recreate` flag ensures containers restart with new config even if the image hasn't changed.
 
-## Container Image Updates (Sonarr, Jellyfin, etc.)
+## Container Image Updates (Sonarr, Plex, etc.)
 
 To pull the latest Docker images and restart with them:
 
@@ -165,19 +165,19 @@ Config (⚙️) → Folders:
 
 Restart SABnzbd after saving.
 
-#### 8. Reconfigure Jellyfin library paths
+#### 8. Reconfigure Plex library paths
 
-Dashboard → Libraries:
-- Edit Movies library → add `/data/media/movies`, remove `/media/movies`
-- Edit TV Shows library → add `/data/media/tv`, remove `/media/tv`
+Settings → Manage → Libraries:
+- Edit Movies library → add `/data/media/movies`, remove old path
+- Edit TV Shows library → add `/data/media/tv`, remove old path
 
 This triggers a library rescan. NFO files ensure accurate identification.
 
-#### 9. Update Seerr root folders
+#### 9. Update Overseerr root folders
 
-Seerr stores its own copy of the root folder paths. If not updated, new requests will fail with "Root folder does not exist":
+Overseerr stores its own copy of the root folder paths. If not updated, new requests will fail with "Root folder does not exist":
 
-1. Open Seerr → Settings → Services
+1. Open Overseerr → Settings → Services
 2. Click Radarr server → change Root Folder from `/movies` to `/data/media/movies` → Save
 3. Click Sonarr server → change Root Folder from `/tv` to `/data/media/tv` → Save
 
@@ -320,7 +320,7 @@ echo "Migration complete"
 
 | Feature | What it does |
 |---------|--------------|
-| Jellyfin discovery ports | Apps auto-detect Jellyfin on LAN (7359/udp, 1900/udp) |
+| Plex discovery ports | Apps auto-detect Plex on LAN (1900/udp, 5353/udp, 32410-32414/udp) |
 | "Adding More Services" docs | Example for adding Lidarr, Readarr, etc. |
 
 **Documentation improvements:**

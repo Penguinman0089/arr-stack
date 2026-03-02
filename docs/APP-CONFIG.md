@@ -5,12 +5,12 @@
 Your stack is running! Now configure each app to work together.
 
 **Configuration order:** Services depend on each other, so configure them in the order below:
-1. Jellyfin (media server — needed before Seerr)
+1. Plex (media server — needed before Overseerr)
 2. qBittorrent (downloads — needed before Sonarr/Radarr)
 3. SABnzbd (optional Usenet — needed before Sonarr/Radarr if using)
 4. Sonarr & Radarr (library managers — need qBit/SABnzbd configured first)
 5. Prowlarr (indexers — needs Sonarr/Radarr configured first)
-6. Seerr (requests — needs Jellyfin + Sonarr/Radarr configured first)
+6. Overseerr (requests — needs Plex + Sonarr/Radarr configured first)
 7. Bazarr (subtitles — needs Sonarr/Radarr configured first)
 8. Pi-hole (DNS — independent, do anytime)
 
@@ -30,17 +30,17 @@ See **[Quick Reference → Service Connection Guide](REFERENCE.md#service-connec
 
 Work through these sections top to bottom.
 
-## 4.1 Jellyfin (Media Server)
+## 4.1 Plex (Media Server)
 
 Streams your media library to any device.
 
-1. **Access:** `http://NAS_IP:8096`
-2. **Create admin account** when prompted (setup wizard)
+1. **Access:** `http://NAS_IP:32400/web`
+2. **Sign in with your Plex account** (or create one at [plex.tv](https://plex.tv))
 3. **Add Libraries:**
-   - Movies: Content type "Movies", Folder `/data/media/movies`
-   - TV Shows: Content type "Shows", Folder `/data/media/tv`
+   - Movies: Type "Movies", Folder `/data/media/movies`
+   - TV Shows: Type "TV Shows", Folder `/data/media/tv`
 
-> **Optional:** [Enable hardware transcoding](APP-CONFIG-ADVANCED.md#hardware-transcoding-intel-quick-sync) for GPU-accelerated playback (recommended for Ugreen NAS). Also see [Kodi for Fire TV](APP-CONFIG-ADVANCED.md#kodi-for-fire-tv-dolby-vision--truehd-atmos) and [RAID5 streaming tuning](APP-CONFIG-ADVANCED.md#raid5-streaming-tuning).
+> **Optional:** [Enable hardware transcoding](APP-CONFIG-ADVANCED.md#hardware-transcoding-intel-quick-sync) for GPU-accelerated playback (recommended for Ugreen NAS, requires Plex Pass).
 
 ## 4.2 qBittorrent (Torrent Downloads)
 
@@ -141,7 +141,7 @@ Searches for TV shows, sends download links to qBittorrent/SABnzbd, and organize
 4. **Enable NFO metadata:** Settings → Metadata → Kodi (XBMC) / Emby → **Enable** (see [why this matters](#nfo-metadata))
    - Series Metadata: ✅
    - Episode Metadata: ✅
-   - All image options: ❌ (Jellyfin handles its own artwork)
+   - All image options: ❌ (Plex handles its own artwork)
 
 5. **Configure naming (TRaSH recommended):** Settings → Media Management → Episode Naming
    - **Rename Episodes:** ✅
@@ -154,7 +154,7 @@ Searches for TV shows, sends download links to qBittorrent/SABnzbd, and organize
 
    > These follow [TRaSH Guides Sonarr naming](https://trash-guides.info/Sonarr/Sonarr-recommended-naming-scheme/). After saving, rename existing files: Series → Select All → Organize.
 
-6. **Block ISOs:** Some indexers serve disc images that Jellyfin can't play.
+6. **Block ISOs:** Some indexers serve disc images that Plex can't play.
    - Settings → Custom Formats → + → Name: `Reject ISO`
    - Add condition: Release Title, value `\.iso$`, check **Regex**
    - Settings → Profiles → your quality profile → set `Reject ISO` to `-10000`
@@ -183,7 +183,7 @@ Searches for movies, sends download links to qBittorrent/SABnzbd, and organizes 
 
 4. **Enable NFO metadata:** Settings → Metadata → Kodi (XBMC) / Emby → **Enable** (see [why this matters](#nfo-metadata))
    - Movie Metadata: ✅
-   - Movie Images: ❌ (Jellyfin handles its own artwork)
+   - Movie Images: ❌ (Plex handles its own artwork)
 
 5. **Configure naming (TRaSH recommended):** Settings → Media Management → Movie Naming
    - **Rename Movies:** ✅
@@ -192,7 +192,7 @@ Searches for movies, sends download links to qBittorrent/SABnzbd, and organizes 
 
    > These follow [TRaSH Guides Radarr naming](https://trash-guides.info/Radarr/Radarr-recommended-naming-scheme/). After saving, rename existing files: Movies → Select All → Organize.
 
-6. **Block ISOs:** Some indexers serve disc images that Jellyfin can't play.
+6. **Block ISOs:** Some indexers serve disc images that Plex can't play.
    - Settings → Custom Formats → + → Name: `Reject ISO`
    - Add condition: Release Title, value `\.iso$`, check **Regex**
    - Settings → Profiles → your quality profile → set `Reject ISO` to `-10000`
@@ -214,9 +214,9 @@ This gives Usenet a 30-minute head start before considering torrents.
 
 > **Applies to both Sonarr (step 4 above) and Radarr (step 4 above).**
 >
-> **Why this matters:** Without NFO files, Jellyfin identifies media by guessing from the filename. For movies or shows with common titles shared by multiple entries on TMDB, it can match the wrong one. When the TMDB IDs don't agree between Radarr/Sonarr and Jellyfin, Seerr can't link them — so requests stay stuck at "Requested" even though the file is downloaded and playable.
+> **Why this matters:** Without NFO files, Plex identifies media by guessing from the filename. For movies or shows with common titles shared by multiple entries on TMDB, it can match the wrong one. When the TMDB IDs don't agree between Radarr/Sonarr and Plex, Overseerr can't link them — so requests stay stuck at "Requested" even though the file is downloaded and playable.
 >
-> Enabling NFO metadata makes Radarr/Sonarr write a small `.nfo` file alongside each media file containing the correct TMDB/IMDB/TVDB IDs. Jellyfin reads these instead of guessing. This eliminates the entire class of metadata mismatch bugs.
+> Enabling NFO metadata makes Radarr/Sonarr write a small `.nfo` file alongside each media file containing the correct TMDB/IMDB/TVDB IDs. Plex reads these instead of guessing. This eliminates the entire class of metadata mismatch bugs.
 >
 > **After enabling:** Run a full library refresh to write NFOs for existing media. In Radarr: Movies → Update All. In Sonarr: Series → Update All. New downloads will get NFOs automatically.
 
@@ -249,15 +249,17 @@ Manages torrent/Usenet indexers and syncs them to Sonarr/Radarr.
 6. **Connect to Radarr:** Same process with `http://localhost:7878`
 7. **Sync:** Settings → Apps → Sync App Indexers
 
-## 4.7 Seerr (Request Manager)
+## 4.7 Overseerr (Request Manager)
 
 Lets users browse and request movies/TV shows.
 
 1. **Access:** `http://NAS_IP:5055`
-2. **Sign in with Jellyfin:**
-   - Jellyfin URL: `http://jellyfin:8096`
-   - Enter Jellyfin credentials
-3. **Configure Services:**
+2. **Sign in with Plex:**
+   - Click "Sign in with Plex" and authorize with your Plex account
+3. **Configure Plex:**
+   - Settings → Plex → Hostname: `plex` (internal Docker hostname)
+   - Port: `32400`
+4. **Configure Services:**
    - Settings → Services → Add Radarr:
      - **Hostname:** `gluetun` (internal Docker hostname)
      - **Port:** `7878`
@@ -281,7 +283,7 @@ Automatically downloads subtitles for your media.
    - **Series Score Threshold:** On (default 90) — auto-syncs series subs scoring below this
    - **Movies Score Threshold:** On (default 70) — auto-syncs movie subs scoring below this
 
-   > **Why:** Jellyfin's web player has no manual subtitle delay control. If subs are out of sync, the only fix is re-timing the subtitle file itself — which is exactly what this does.
+   > **Why:** Plex's built-in subtitle support may not always sync correctly. If subs are out of sync, this re-times the subtitle file against the audio track.
 
 ## 4.9 Pi-hole (DNS)
 

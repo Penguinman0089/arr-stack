@@ -53,15 +53,15 @@ All notable changes to this project will be documented in this file.
 - **Separated download directories**: Torrents and Usenet downloads now go to separate directories (`torrents/{tv,movies}` and `usenet/{incomplete,complete/{tv,movies}}`) instead of a flat `downloads/` folder
 - **SABnzbd hardening**: Sorting disabled, propagation delay, SFV checking, deobfuscation — follows TRaSH SABnzbd recommendations
 - **qBittorrent tuning**: UPnP disabled, uTP rate limiting, LAN peer limiting, encryption mode — follows TRaSH qBittorrent recommendations
-- **NFO metadata for Radarr and Sonarr**: Recommended setup step — Radarr and Sonarr now write `.nfo` files containing correct TMDB/IMDB/TVDB IDs alongside each media file. Jellyfin reads these instead of guessing from filenames, preventing metadata mismatches that cause Seerr to show "Requested" when files are already downloaded. Especially important for foreign-language films and titles shared by multiple movies
+- **NFO metadata for Radarr and Sonarr**: Recommended setup step — Radarr and Sonarr now write `.nfo` files containing correct TMDB/IMDB/TVDB IDs alongside each media file. Plex reads these instead of guessing from filenames, preventing metadata mismatches that cause Overseerr to show "Requested" when files are already downloaded. Especially important for foreign-language films and titles shared by multiple movies
 - **Configarr**: New utility container that syncs TRaSH Guides quality profiles and custom formats to Sonarr/Radarr. One-shot job (runs once and exits) — run manually with `docker compose -f docker-compose.utilities.yml run --rm configarr`. Includes dry-run mode
 - **AI disclosure**: README now discloses that this codebase was generated with Claude Code, with human oversight throughout
 - **Playwright E2E tests**: Automated UI screenshot tests for all 9 services plus API assertions for root folders and media libraries. Run with `npm run test:e2e`
 
 ### Changed
-- **Volume mounts restructured**: qBittorrent, SABnzbd, Sonarr, Radarr now mount `${MEDIA_ROOT}:/data` (single mount). Jellyfin and Bazarr mount specific subdirectories under `/data/`. This is a breaking change for existing users — see UPGRADING.md
+- **Volume mounts restructured**: qBittorrent, SABnzbd, Sonarr, Radarr now mount `${MEDIA_ROOT}:/data` (single mount). Plex and Bazarr mount specific subdirectories under `/data/`. This is a breaking change for existing users — see UPGRADING.md
 - **Download categories renamed**: qBittorrent categories changed from `sonarr`/`radarr` to `tv`/`movies` to match directory structure and SABnzbd categories
-- **Jellyfin library paths**: Changed from `/media/movies` and `/media/tv` to `/data/media/movies` and `/data/media/tv` — follows TRaSH recommended `media/` subdirectory structure
+- **Plex library paths**: Changed from `/media/movies` and `/media/tv` to `/data/media/movies` and `/data/media/tv` — follows TRaSH recommended `media/` subdirectory structure
 - **Repo renamed**: `arr-stack-ugreennas` → `ultimate-arr-stack`. GitHub auto-redirects old URLs
 
 ### Documentation

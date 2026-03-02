@@ -28,7 +28,7 @@ The backup script (`scripts/arr-backup.sh`) backs up **essential configs only** 
 | bazarr-config | ~2MB | Subtitle provider credentials |
 | uptime-kuma-data | ~14MB | Monitor configurations |
 | pihole-etc-dnsmasq | ~4KB | Custom DNS settings |
-| seerr-config | ~5MB | User accounts, requests |
+| overseerr-config | ~5MB | User accounts, requests |
 
 **Total: ~60MB uncompressed, ~13MB compressed**
 
@@ -38,14 +38,13 @@ Large volumes that regenerate automatically are excluded:
 
 | Volume | Size | Why Excluded |
 |--------|------|--------------|
-| jellyfin-config | ~407MB | Re-scan library to rebuild metadata |
+| plex-config | ~500MB | Re-scan library to rebuild metadata |
 | sonarr-config | ~43MB | Re-scan library to rebuild |
 | radarr-config | ~110MB | Re-scan library to rebuild |
 | pihole-etc-pihole | ~138MB | Blocklists auto-download on startup |
-| jellyfin-cache | ~43MB | Transcoding cache, fully regenerates |
 | duc-index | ~20MB | Disk usage index, regenerates on restart |
 
-> **Note:** If you want to preserve watch history (Jellyfin) or avoid re-scanning, you can manually backup these volumes using the same docker command shown below.
+> **Note:** If you want to preserve watch history (Plex) or avoid re-scanning, you can manually backup these volumes using the same docker command shown below.
 
 ---
 
@@ -121,15 +120,15 @@ scp user@nas:/tmp/arr-stack-backup-*.tar.gz ./backup.tar.gz
 ### Single Volume Restore
 
 ```bash
-# On NAS via SSH - example: restore seerr config
-docker compose -f docker-compose.arr-stack.yml stop seerr
+# On NAS via SSH - example: restore overseerr config
+docker compose -f docker-compose.arr-stack.yml stop overseerr
 
 docker run --rm \
-  -v ./backup/seerr-config:/source:ro \
-  -v arr-stack_seerr-config:/dest \
+  -v ./backup/overseerr-config:/source:ro \
+  -v arr-stack_overseerr-config:/dest \
   alpine cp -a /source/. /dest/
 
-docker compose -f docker-compose.arr-stack.yml start seerr
+docker compose -f docker-compose.arr-stack.yml start overseerr
 ```
 
 ---
@@ -161,8 +160,8 @@ If auto-detection fails, use `--prefix`:
 ### Request Manager Detection
 
 The script auto-detects which request manager volume exists and backs it up:
-- `seerr-config` (Seerr)
-- `overseerr-config` (Overseerr, if used instead)
+- `overseerr-config` (Overseerr)
+- `seerr-config` (if upgrading from older Seerr setup)
 
 ---
 

@@ -10,10 +10,8 @@
 # Note: `pihole reloaddns` does NOT pick up bind-mount changes — use `docker restart pihole`
 
 # Media services
-address=/jellyfin.lan/TRAEFIK_LAN_IP
-address=/seerr.lan/TRAEFIK_LAN_IP
-address=/jellyseerr.lan/TRAEFIK_LAN_IP
-address=/jellyseer.lan/TRAEFIK_LAN_IP
+address=/plex.lan/TRAEFIK_LAN_IP
+address=/overseerr.lan/TRAEFIK_LAN_IP
 
 # *arr stack (VPN-protected)
 address=/sonarr.lan/TRAEFIK_LAN_IP
