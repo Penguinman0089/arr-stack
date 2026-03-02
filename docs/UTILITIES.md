@@ -10,14 +10,74 @@ docker compose -f docker-compose.utilities.yml up -d
 
 | Service | Description | Access |
 |---------|-------------|--------|
-| **deunhealth** | Auto-restarts services when VPN recovers | Internal |
+| **Homarr** | Service dashboard — quick links to every app | http://homarr.lan |
+| **Tautulli** | Plex monitoring, analytics, and notifications | http://tautulli.lan |
+| **Tailscale** | VPN/remote access with exit node and subnet routes | https://login.tailscale.com/admin |
 | **Uptime Kuma** | Service monitoring dashboard | http://uptime.lan |
 | **Beszel** | System metrics (CPU, RAM, disk, containers) | http://beszel.lan |
 | **duc** | Disk usage analyzer (treemap UI) | http://duc.lan |
+| **deunhealth** | Auto-restarts services when VPN recovers | Internal |
 | **qbit-scheduler** | Pauses torrents overnight for disk spin-down | Internal |
+| **Diun** | Docker image update notifications | Internal |
 | **Configarr** | Syncs TRaSH Guides quality profiles to Sonarr/Radarr | Run manually |
 
 > **Want Docker log viewing?** [Dozzle](https://dozzle.dev/) is a lightweight web UI for viewing container logs in real-time. Not included in the stack, but easy to add if you want it.
+
+## Homarr Setup
+
+Homarr is a service dashboard that gives you quick-access links to every app in your stack. After first launch, open http://NAS_IP:7575 (or http://homarr.lan) and create an admin account.
+
+**Auto-populate your dashboard with all services:**
+
+```bash
+# 1. In the Homarr UI, go to: Manage > Users > (your user) > API tokens > Create token
+# 2. Run the setup script:
+./scripts/setup-homarr.sh <NAS_IP> <API_TOKEN>
+```
+
+This creates apps for all 17 services (Plex, Sonarr, Radarr, Pi-hole, etc.) with correct URLs, icons, and health-check ping URLs. After running the script:
+
+1. Click the **pencil icon** (edit mode) on your board
+2. Click **+ Add item** > **App**
+3. Select each app and drag it onto your board
+4. Arrange into groups (Media, Downloads, Management, etc.)
+5. Click **Save**
+
+> **Tip:** The setup script is idempotent-safe — running it again just creates duplicates, which you can delete from Manage > Apps.
+
+## Tautulli Setup
+
+Tautulli monitors Plex activity, viewing history, and usage statistics. After first launch, open http://NAS_IP:8181 (or http://tautulli.lan) and follow the setup wizard to connect it to your Plex server.
+
+**Quick setup:**
+1. Enter your Plex server: `http://plex:32400` (container-to-container)
+2. Sign in with your Plex account
+3. Select your Plex server from the list
+4. Configure notification agents (optional — Discord, email, etc.)
+
+## Tailscale Setup
+
+Tailscale provides VPN/remote access to your NAS and Docker services from anywhere. It's configured as an exit node with subnet routes to both the Docker network (172.20.0.0/24) and your LAN (192.168.1.0/24).
+
+**1. Set your auth key in `.env`:**
+```bash
+TAILSCALE_AUTHKEY=tskey-auth-xxxxx
+TAILSCALE_HOSTNAME=ugreen-nas
+```
+
+Get an auth key from https://login.tailscale.com/admin/settings/keys — use a **reusable** key if you want the container to re-register after restarts.
+
+**2. Start the container:**
+```bash
+docker compose -f docker-compose.utilities.yml up -d tailscale
+```
+
+**3. Approve the routes in Tailscale admin:**
+Open https://login.tailscale.com/admin/machines, find your NAS, and:
+- Enable **Exit node**
+- Approve **subnet routes** (172.20.0.0/24, 192.168.1.0/24)
+
+Once approved, any Tailscale-connected device can access your services by IP (e.g., 172.20.0.4:32400 for Plex) even when away from home.
 
 ## Uptime Kuma Setup
 
