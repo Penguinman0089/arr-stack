@@ -165,6 +165,43 @@
             font-size: 1.3em;
         }
 
+        .secret-links {
+            margin-top: 2rem;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+
+        .secret-links:hover {
+            opacity: 1;
+        }
+
+        .secret-links a {
+            display: inline-block;
+            margin: 0 1rem;
+            padding: 8px 20px;
+            font-family: 'Permanent Marker', cursive;
+            font-size: 1.1rem;
+            color: #aaa;
+            text-decoration: none;
+            border: 2px solid #444;
+            border-radius: 8px;
+            transition: all 0.3s;
+        }
+
+        .secret-links a:hover {
+            color: #fff;
+            border-color: #e5a00d;
+            background: rgba(229, 160, 13, 0.15);
+            transform: scale(1.1);
+        }
+
+        .secret-links .hint {
+            font-family: 'Creepster', cursive;
+            font-size: 0.8rem;
+            color: #555;
+            margin-bottom: 0.5rem;
+        }
+
         /* Sign post */
         .sign {
             position: fixed;
@@ -305,6 +342,11 @@
             This is <span class="emphasis">MY</span> corner of the internet<br>
             and I don't recall inviting you.
         </p>
+        <div class="secret-links">
+            <p class="hint">...or maybe you do belong here?</p>
+            <a href="https://plex.penguinman0089.com">🎬 Plex</a>
+            <a href="https://overseerr.penguinman0089.com">🍿 Overseerr</a>
+        </div>
     </div>
 
     <div class="sign">
