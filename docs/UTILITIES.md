@@ -30,9 +30,10 @@ Homarr is a service dashboard that gives you quick-access links to every app in 
 **Auto-populate your dashboard with all services:**
 
 ```bash
-# 1. In the Homarr UI, go to: Manage > Users > (your user) > API tokens > Create token
-# 2. Run the setup script:
-./scripts/setup-homarr.sh <NAS_IP> <API_TOKEN>
+# 1. In the Homarr UI, go to: Management > Tools > API > click "Authentication" tab > create an API key
+# 2. Copy the full key (format: <id>.<token>)
+# 3. Run the setup script:
+./scripts/setup-homarr.sh <NAS_IP> <API_KEY>
 ```
 
 This creates apps for all 17 services (Plex, Sonarr, Radarr, Pi-hole, etc.) with correct URLs, icons, and health-check ping URLs. After running the script:

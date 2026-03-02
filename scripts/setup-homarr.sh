@@ -6,8 +6,8 @@
 # Prerequisites:
 #   1. Homarr must be running: docker compose -f docker-compose.utilities.yml up -d homarr
 #   2. Open http://<NAS_IP>:7575 and create your admin account
-#   3. Go to Manage > Users > (your user) > API tokens > Create token
-#   4. Copy the API token
+#   3. Go to Management > Tools > API, click the "Authentication" tab, create an API key
+#   4. Copy the full API key (format: <id>.<token>)
 #
 # Usage:
 #   ./scripts/setup-homarr.sh <NAS_IP> <API_TOKEN>
@@ -89,7 +89,7 @@ EOF
     local http_code
     response=$(curl -s -w "\n%{http_code}" \
         -X POST "${HOMARR_URL}/api/apps" \
-        -H "Authorization: Bearer ${API_TOKEN}" \
+        -H "ApiKey: ${API_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "${payload}" 2>/dev/null)
 
@@ -287,7 +287,7 @@ else
     echo -e "${YELLOW}═══════════════════════════════════════════════════════${NC}"
     echo ""
     echo -e "Troubleshooting:"
-    echo -e "  • Check API token is valid: Settings > API in Homarr UI"
+    echo -e "  • Check API key is valid: Management > Tools > API > Authentication tab"
     echo -e "  • Check Swagger docs: ${BLUE}${HOMARR_URL}/swagger-ui${NC}"
     echo -e "  • If you get 409 Conflict, the app already exists"
 fi
