@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚫 Go Away</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Creepster&family=Permanent+Marker&display=swap');
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            min-height: 100vh;
+            background: #1a0a00;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            cursor: none;
+        }
+
+        /* Animated grass background */
+        .lawn {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 35vh;
+            background: linear-gradient(to top, #1a4d1a, #2d7a2d 40%, #1a5c1a 70%, transparent);
+            z-index: 0;
+        }
+
+        .lawn::before {
+            content: '';
+            position: absolute;
+            top: -20px;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background: repeating-linear-gradient(
+                90deg,
+                transparent,
+                transparent 8px,
+                #2d8a2d 8px,
+                #2d8a2d 10px,
+                transparent 10px,
+                transparent 20px
+            );
+            animation: grassWave 3s ease-in-out infinite alternate;
+        }
+
+        @keyframes grassWave {
+            0% { transform: skewX(-2deg); }
+            100% { transform: skewX(2deg); }
+        }
+
+        /* Night sky with stars */
+        .sky {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 35vh;
+            background: linear-gradient(to bottom, #0a0a2e, #1a0a00);
+            z-index: 0;
+        }
+
+        .star {
+            position: absolute;
+            background: white;
+            border-radius: 50%;
+            animation: twinkle 2s ease-in-out infinite alternate;
+        }
+
+        @keyframes twinkle {
+            0% { opacity: 0.3; }
+            100% { opacity: 1; }
+        }
+
+        /* Moon */
+        .moon {
+            position: fixed;
+            top: 8vh;
+            right: 12vw;
+            width: 80px;
+            height: 80px;
+            background: #f5e6b8;
+            border-radius: 50%;
+            box-shadow: 0 0 40px #f5e6b866, 0 0 80px #f5e6b833;
+            z-index: 1;
+        }
+
+        .moon::after {
+            content: '';
+            position: absolute;
+            top: 8px;
+            left: 12px;
+            width: 60px;
+            height: 60px;
+            background: #e8d5a0;
+            border-radius: 50%;
+            opacity: 0.3;
+        }
+
+        /* Main content */
+        .content {
+            position: relative;
+            z-index: 2;
+            text-align: center;
+            padding: 2rem;
+            margin-bottom: 10vh;
+        }
+
+        /* Old man emoji */
+        .old-man {
+            font-size: 8rem;
+            animation: shake 0.5s ease-in-out infinite;
+            filter: drop-shadow(0 0 20px rgba(255, 100, 0, 0.3));
+            user-select: none;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: rotate(-3deg); }
+            50% { transform: rotate(3deg); }
+        }
+
+        .old-man:hover {
+            animation: angryShake 0.1s ease-in-out infinite;
+        }
+
+        @keyframes angryShake {
+            0%, 100% { transform: rotate(-8deg) scale(1.2); }
+            50% { transform: rotate(8deg) scale(1.2); }
+        }
+
+        h1 {
+            font-family: 'Permanent Marker', cursive;
+            font-size: clamp(2.5rem, 8vw, 5rem);
+            color: #ff4444;
+            text-shadow: 3px 3px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+            margin: 1rem 0;
+            letter-spacing: 3px;
+        }
+
+        .subtitle {
+            font-family: 'Creepster', cursive;
+            font-size: clamp(1.2rem, 4vw, 2rem);
+            color: #ff8844;
+            text-shadow: 2px 2px 0 #000;
+            margin-bottom: 1.5rem;
+        }
+
+        .warning {
+            font-family: 'Permanent Marker', cursive;
+            font-size: clamp(0.9rem, 2.5vw, 1.3rem);
+            color: #ccaa44;
+            text-shadow: 1px 1px 0 #000;
+            max-width: 500px;
+            line-height: 1.8;
+        }
+
+        .warning .emphasis {
+            color: #ff4444;
+            font-size: 1.3em;
+        }
+
+        /* Sign post */
+        .sign {
+            position: fixed;
+            bottom: 10vh;
+            left: 8vw;
+            z-index: 3;
+            animation: signSwing 4s ease-in-out infinite;
+            transform-origin: top center;
+        }
+
+        @keyframes signSwing {
+            0%, 100% { transform: rotate(-2deg); }
+            50% { transform: rotate(2deg); }
+        }
+
+        .sign-board {
+            background: #8B4513;
+            border: 4px solid #5c2d00;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-family: 'Permanent Marker', cursive;
+            color: #ffddaa;
+            font-size: clamp(0.8rem, 2vw, 1.1rem);
+            text-align: center;
+            box-shadow: 2px 2px 8px rgba(0,0,0,0.5);
+            transform: rotate(-5deg);
+        }
+
+        .sign-post {
+            width: 8px;
+            height: 80px;
+            background: #6b3a1f;
+            margin: 0 auto;
+        }
+
+        /* Flashlight cursor effect */
+        .flashlight {
+            position: fixed;
+            pointer-events: none;
+            width: 200px;
+            height: 200px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255,255,200,0.1) 0%, transparent 70%);
+            transform: translate(-50%, -50%);
+            z-index: 10;
+        }
+
+        /* Penguin easter egg */
+        .penguin {
+            position: fixed;
+            bottom: 5vh;
+            right: -60px;
+            font-size: 3rem;
+            z-index: 4;
+            animation: penguinPeek 8s ease-in-out infinite;
+            cursor: pointer;
+        }
+
+        @keyframes penguinPeek {
+            0%, 70%, 100% { right: -60px; }
+            75%, 95% { right: 20px; }
+        }
+
+        .penguin:hover::after {
+            content: '💨';
+            position: absolute;
+            left: -30px;
+            top: 0;
+            animation: poof 0.5s forwards;
+        }
+
+        @keyframes poof {
+            to { opacity: 0; transform: scale(2) translateY(-20px); }
+        }
+
+        /* No trespassing tape */
+        .tape {
+            position: fixed;
+            top: 45%;
+            left: -10%;
+            right: -10%;
+            height: 40px;
+            background: repeating-linear-gradient(
+                -45deg,
+                #ffcc00,
+                #ffcc00 20px,
+                #222 20px,
+                #222 40px
+            );
+            z-index: 1;
+            transform: rotate(-5deg);
+            opacity: 0.6;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .tape-text {
+            font-family: 'Permanent Marker', cursive;
+            font-size: 1rem;
+            color: #000;
+            letter-spacing: 8px;
+            text-transform: uppercase;
+            white-space: nowrap;
+            animation: scrollText 15s linear infinite;
+        }
+
+        @keyframes scrollText {
+            from { transform: translateX(100%); }
+            to { transform: translateX(-100%); }
+        }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .old-man { font-size: 5rem; }
+            .sign { display: none; }
+            .tape { height: 30px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="sky" id="sky"></div>
+    <div class="moon"></div>
+    <div class="lawn"></div>
+
+    <div class="tape">
+        <span class="tape-text">⚠ NO TRESPASSING ⚠ KEEP OUT ⚠ NO TRESPASSING ⚠ KEEP OUT ⚠ NO TRESPASSING ⚠ KEEP OUT ⚠</span>
+    </div>
+
+    <div class="content">
+        <div class="old-man" id="oldman">👴</div>
+        <h1>GET OFF MY LAWN!</h1>
+        <p class="subtitle">You have NO business being here.</p>
+        <p class="warning">
+            There is <span class="emphasis">NOTHING</span> for you here.<br>
+            Go home. Touch grass. Call your mother.<br>
+            This is <span class="emphasis">MY</span> corner of the internet<br>
+            and I don't recall inviting you.
+        </p>
+    </div>
+
+    <div class="sign">
+        <div class="sign-board">
+            🚫 PRIVATE PROPERTY 🚫<br>
+            Trespassers will be<br>
+            mildly inconvenienced
+        </div>
+        <div class="sign-post"></div>
+    </div>
+
+    <div class="penguin" title="🐧 You saw nothing.">🐧</div>
+
+    <div class="flashlight" id="flashlight"></div>
+
+    <script>
+        // Generate stars
+        const sky = document.getElementById('sky');
+        for (let i = 0; i < 80; i++) {
+            const star = document.createElement('div');
+            star.className = 'star';
+            const size = Math.random() * 3 + 1;
+            star.style.width = size + 'px';
+            star.style.height = size + 'px';
+            star.style.left = Math.random() * 100 + '%';
+            star.style.top = Math.random() * 100 + '%';
+            star.style.animationDelay = Math.random() * 2 + 's';
+            star.style.animationDuration = (Math.random() * 2 + 1) + 's';
+            sky.appendChild(star);
+        }
+
+        // Flashlight cursor
+        const flashlight = document.getElementById('flashlight');
+        document.addEventListener('mousemove', (e) => {
+            flashlight.style.left = e.clientX + 'px';
+            flashlight.style.top = e.clientY + 'px';
+        });
+
+        // Old man gets angrier on click
+        const oldman = document.getElementById('oldman');
+        const phrases = [
+            "I SAID GET OFF MY LAWN!",
+            "Don't make me get the hose!",
+            "Back in MY day, we respected boundaries!",
+            "I'm calling the internet police!",
+            "You kids and your URL bars...",
+            "I have a VERY particular set of skills...\n...mostly yelling at clouds.",
+            "404: My patience not found!",
+            "This domain is OCCUPIED!",
+            "Do I LOOK like I have cookies for you?!",
+        ];
+        let clickCount = 0;
+
+        oldman.addEventListener('click', () => {
+            clickCount++;
+            const phrase = phrases[clickCount % phrases.length];
+
+            // Create floating text
+            const text = document.createElement('div');
+            text.textContent = phrase;
+            text.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                font-family: 'Permanent Marker', cursive;
+                font-size: clamp(1rem, 3vw, 1.5rem);
+                color: #ff4444;
+                text-shadow: 2px 2px 0 #000;
+                z-index: 100;
+                pointer-events: none;
+                white-space: pre-line;
+                text-align: center;
+                animation: floatUp 2s forwards;
+            `;
+
+            // Add animation
+            const style = document.createElement('style');
+            style.textContent = `
+                @keyframes floatUp {
+                    0% { opacity: 1; transform: translate(-50%, -50%) scale(0.5); }
+                    50% { opacity: 1; transform: translate(-50%, -80%) scale(1.1); }
+                    100% { opacity: 0; transform: translate(-50%, -120%) scale(0.8); }
+                }
+            `;
+            document.head.appendChild(style);
+            document.body.appendChild(text);
+            setTimeout(() => text.remove(), 2000);
+
+            // Screen shake
+            document.body.style.animation = 'none';
+            document.body.offsetHeight; // trigger reflow
+            document.body.style.animation = 'screenShake 0.3s';
+        });
+
+        // Screen shake animation
+        const shakeStyle = document.createElement('style');
+        shakeStyle.textContent = `
+            @keyframes screenShake {
+                0%, 100% { transform: translate(0); }
+                25% { transform: translate(-5px, 3px); }
+                50% { transform: translate(5px, -3px); }
+                75% { transform: translate(-3px, 5px); }
+            }
+        `;
+        document.head.appendChild(shakeStyle);
+
+        // Console easter egg
+        console.log('%c🐧 PENGUINMAN SAYS: GO AWAY! 🐧', 'font-size: 24px; color: red; font-weight: bold;');
+        console.log('%cSeriously though, there is nothing here for you.', 'font-size: 14px; color: orange;');
+        console.log('%cBut since you found this... nice detective work. 🕵️', 'font-size: 12px; color: green;');
+    </script>
+</body>
+</html>

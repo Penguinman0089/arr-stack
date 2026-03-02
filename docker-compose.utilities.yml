@@ -18,6 +18,7 @@ volumes:
   tailscale-data:
   homarr-config:
   homarr-data:
+  landing-page:
 
 #########################
 # Networks              #
@@ -39,6 +40,27 @@ x-logging: &default-logging
 # Services              #
 #########################
 services:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # LANDING PAGE - "Get off my lawn" page for the root domain.
+  # Access: penguinman0089.com (via Cloudflare Tunnel)
+  # ═══════════════════════════════════════════════════════════════════════════
+  landing-page:
+    image: nginx:alpine
+    container_name: landing-page
+    restart: always
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.16
+    volumes:
+      - ./landing:/usr/share/nginx/html:ro
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # ═══════════════════════════════════════════════════════════════════════════
   # DEUNHEALTH - Auto-recovery for VPN failures. Watches gluetun health and
   # restarts dependent services (qBittorrent, Sonarr, etc.) when VPN recovers.
