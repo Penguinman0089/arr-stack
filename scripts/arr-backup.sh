@@ -47,7 +47,8 @@ trap 'notify_failure "Failed during: ${STEP}. Check /var/log/arr-backup.log"' ER
 
 # Ensure critical services are running on ANY exit (normal, error, or interrupt)
 ensure_services_running() {
-  COMPOSE_FILE="/volume1/docker/arr-stack/docker-compose.arr-stack.yml"
+  SCRIPT_DIR_ESR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  COMPOSE_FILE="${SCRIPT_DIR_ESR}/../docker-compose.arr-stack.yml"
   [ -f "$COMPOSE_FILE" ] || return 0
 
   CRITICAL="gluetun pihole sonarr radarr prowlarr qbittorrent plex sabnzbd"
