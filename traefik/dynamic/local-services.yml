@@ -81,8 +81,6 @@ http:
       entryPoints: [web]
       service: beszel-lan
 
-  middlewares: {}
-
   services:
     # === Media Services ===
     plex-lan:
