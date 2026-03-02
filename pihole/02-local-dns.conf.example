@@ -31,3 +31,5 @@ address=/pihole.lan/TRAEFIK_LAN_IP
 address=/uptime.lan/TRAEFIK_LAN_IP
 address=/duc.lan/TRAEFIK_LAN_IP
 address=/beszel.lan/TRAEFIK_LAN_IP
+address=/tautulli.lan/TRAEFIK_LAN_IP
+address=/homarr.lan/TRAEFIK_LAN_IP

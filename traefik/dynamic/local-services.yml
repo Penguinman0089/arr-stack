@@ -81,6 +81,16 @@ http:
       entryPoints: [web]
       service: beszel-lan
 
+    tautulli-lan:
+      rule: "Host(`tautulli.lan`)"
+      entryPoints: [web]
+      service: tautulli-lan
+
+    homarr-lan:
+      rule: "Host(`homarr.lan`)"
+      entryPoints: [web]
+      service: homarr-lan
+
   services:
     # === Media Services ===
     plex-lan:
@@ -146,3 +156,13 @@ http:
       loadBalancer:
         servers:
           - url: "http://172.20.0.15:8090"
+
+    tautulli-lan:
+      loadBalancer:
+        servers:
+          - url: "http://172.20.0.17:8181"
+
+    homarr-lan:
+      loadBalancer:
+        servers:
+          - url: "http://172.20.0.19:7575"
