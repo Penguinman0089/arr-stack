@@ -60,10 +60,9 @@ add_app() {
 
     local icon_url="${ICON_BASE}/${icon_name}.svg"
 
-    # Build JSON payload
+    # Build JSON payload (pingUrl must always be present; use "" for no ping)
     local payload
-    if [[ -n "${ping_url}" ]]; then
-        payload=$(cat <<EOF
+    payload=$(cat <<EOF
 {
     "name": "${name}",
     "description": "${description}",
@@ -73,17 +72,6 @@ add_app() {
 }
 EOF
 )
-    else
-        payload=$(cat <<EOF
-{
-    "name": "${name}",
-    "description": "${description}",
-    "href": "${href}",
-    "iconUrl": "${icon_url}"
-}
-EOF
-)
-    fi
 
     local response
     local http_code
