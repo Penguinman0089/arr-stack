@@ -12,7 +12,6 @@ volumes:
   duc-index:
   uptime-kuma-data:
   beszel-data:
-  diun-data:
   configarr-repos:
   tautulli-config:
   tailscale-data:
@@ -194,30 +193,26 @@ services:
       start_period: 10s
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # DIUN - Docker Image Update Notifier. Watches running containers and sends
-  # webhook notifications when newer image versions are available on registries.
-  # No web UI. Configure DIUN_WEBHOOK_URL in .env to receive alerts.
+  # WATCHTOWER - Automatic Docker image updates. Checks for newer images on a
+  # schedule and recreates containers with the latest version. Runs Sundays at
+  # 4 AM (1 hour after backup cron) so you always have a pre-update snapshot.
+  # No web UI. Old images are cleaned up automatically.
   # ═══════════════════════════════════════════════════════════════════════════
-  diun:
-    image: crazymax/diun:4.31.0
-    container_name: diun
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
     restart: always
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - diun-data:/data
+      - /var/run/docker.sock:/var/run/docker.sock
     networks:
       arr-stack:
         ipv4_address: 172.20.0.16
     environment:
       - TZ=${TZ}
-      - DIUN_WATCH_WORKERS=5
-      - DIUN_WATCH_SCHEDULE=${DIUN_SCHEDULE:-0 6 * * *}
-      - DIUN_PROVIDERS_DOCKER=true
-      - DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT=true
-      - DIUN_NOTIF_WEBHOOK_ENDPOINT=${DIUN_WEBHOOK_URL}
-      - DIUN_NOTIF_WEBHOOK_METHOD=POST
-      - DIUN_NOTIF_WEBHOOK_HEADERS_0_NAME=Content-Type
-      - DIUN_NOTIF_WEBHOOK_HEADERS_0_VALUE=application/json
+      - WATCHTOWER_CLEANUP=true
+      - WATCHTOWER_SCHEDULE=0 0 4 * * 0
+      - WATCHTOWER_ROLLING_RESTART=true
+      - WATCHTOWER_TIMEOUT=60s
     logging: *default-logging
 
   # ═══════════════════════════════════════════════════════════════════════════
