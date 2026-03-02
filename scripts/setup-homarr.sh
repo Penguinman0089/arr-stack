@@ -147,8 +147,8 @@ add_app \
 add_app \
     "SABnzbd" \
     "Usenet download client (routed through VPN)" \
-    "http://${NAS_IP}:8080" \
-    "http://${NAS_IP}:8080" \
+    "http://${NAS_IP}:8082" \
+    "" \
     "sabnzbd"
 
 # ── Media Management ─────────────────────────────────────────────────────

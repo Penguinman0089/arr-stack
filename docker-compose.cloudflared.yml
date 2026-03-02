@@ -21,14 +21,14 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:2026.2.0
     container_name: cloudflared
-    command: tunnel --config /home/nonroot/.cloudflared/config.yml run
-    volumes:
-      - ./cloudflared:/home/nonroot/.cloudflared:ro
+    command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    environment:
+      - TUNNEL_METRICS=0.0.0.0:2000
     networks:
       arr-stack:
         ipv4_address: 172.20.0.12
     healthcheck:
-      test: ["CMD", "cloudflared", "tunnel", "info", "nas-tunnel"]
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "localhost:2000", "info"]
       interval: 30s
       timeout: 10s
       retries: 3
