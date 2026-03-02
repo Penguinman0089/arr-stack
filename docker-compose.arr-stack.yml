@@ -263,7 +263,7 @@ services:
     ports:
       - "32400:32400"     # Web UI
       - "1900:1900/udp"   # DLNA
-      - "5353:5353/udp"   # Bonjour/Avahi discovery
+      # - "5353:5353/udp" # Bonjour/Avahi discovery (disabled — NAS mDNS uses this port)
       - "8324:8324"       # Roku companion
       - "32410:32410/udp" # GDM network discovery
       - "32412:32412/udp" # GDM network discovery
