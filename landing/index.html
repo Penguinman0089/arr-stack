@@ -168,13 +168,10 @@
         .secret-links {
             margin-top: 2rem;
             display: none;
-            opacity: 0;
-            transition: opacity 1.5s ease-in;
         }
 
         .secret-links.revealed {
             display: block;
-            opacity: 1;
         }
 
         .secret-links a {
@@ -183,17 +180,17 @@
             padding: 6px 14px;
             font-family: 'Permanent Marker', cursive;
             font-size: 0.85rem;
-            color: #444;
+            color: transparent;
             text-decoration: none;
-            border: 1px solid #333;
+            border: 1px solid transparent;
             border-radius: 6px;
-            transition: all 0.3s;
+            transition: all 0.4s;
         }
 
         .secret-links a:hover {
-            color: #ccc;
-            border-color: #666;
-            background: rgba(255, 255, 255, 0.05);
+            color: #999;
+            border-color: #555;
+            background: rgba(255, 255, 255, 0.03);
         }
 
         /* Sign post */
@@ -396,8 +393,11 @@
 
         oldman.addEventListener('click', () => {
             clickCount++;
-            if (clickCount >= 5 && !secretLinks.classList.contains('revealed')) {
+            if (clickCount === 5) {
                 secretLinks.classList.add('revealed');
+            } else if (clickCount === 6) {
+                secretLinks.classList.remove('revealed');
+                clickCount = 0;
             }
             const phrase = phrases[clickCount % phrases.length];
 
