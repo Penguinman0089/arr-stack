@@ -167,39 +167,33 @@
 
         .secret-links {
             margin-top: 2rem;
+            display: none;
             opacity: 0;
-            transition: opacity 0.5s;
+            transition: opacity 1.5s ease-in;
         }
 
-        .secret-links:hover {
+        .secret-links.revealed {
+            display: block;
             opacity: 1;
         }
 
         .secret-links a {
             display: inline-block;
-            margin: 0 1rem;
-            padding: 8px 20px;
+            margin: 0 0.8rem;
+            padding: 6px 14px;
             font-family: 'Permanent Marker', cursive;
-            font-size: 1.1rem;
-            color: #aaa;
+            font-size: 0.85rem;
+            color: #444;
             text-decoration: none;
-            border: 2px solid #444;
-            border-radius: 8px;
+            border: 1px solid #333;
+            border-radius: 6px;
             transition: all 0.3s;
         }
 
         .secret-links a:hover {
-            color: #fff;
-            border-color: #e5a00d;
-            background: rgba(229, 160, 13, 0.15);
-            transform: scale(1.1);
-        }
-
-        .secret-links .hint {
-            font-family: 'Creepster', cursive;
-            font-size: 0.8rem;
-            color: #555;
-            margin-bottom: 0.5rem;
+            color: #ccc;
+            border-color: #666;
+            background: rgba(255, 255, 255, 0.05);
         }
 
         /* Sign post */
@@ -342,10 +336,9 @@
             This is <span class="emphasis">MY</span> corner of the internet<br>
             and I don't recall inviting you.
         </p>
-        <div class="secret-links">
-            <p class="hint">...or maybe you do belong here?</p>
-            <a href="https://plex.penguinman0089.com">🎬 Plex</a>
-            <a href="https://overseerr.penguinman0089.com">🍿 Overseerr</a>
+        <div class="secret-links" id="secretLinks">
+            <a href="https://plex.penguinman0089.com">Plex</a>
+            <a href="https://overseerr.penguinman0089.com">Overseerr</a>
         </div>
     </div>
 
@@ -399,9 +392,13 @@
             "Do I LOOK like I have cookies for you?!",
         ];
         let clickCount = 0;
+        const secretLinks = document.getElementById('secretLinks');
 
         oldman.addEventListener('click', () => {
             clickCount++;
+            if (clickCount >= 5 && !secretLinks.classList.contains('revealed')) {
+                secretLinks.classList.add('revealed');
+            }
             const phrase = phrases[clickCount % phrases.length];
 
             // Create floating text
