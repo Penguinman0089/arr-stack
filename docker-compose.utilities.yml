@@ -50,7 +50,7 @@ services:
     restart: always
     networks:
       arr-stack:
-        ipv4_address: 172.20.0.16
+        ipv4_address: 172.20.0.21
     volumes:
       - ./landing:/usr/share/nginx/html:ro
     logging: *default-logging
