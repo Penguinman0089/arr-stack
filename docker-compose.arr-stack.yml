@@ -383,7 +383,7 @@ services:
         ipv4_address: 172.20.0.9
     volumes:
       - bazarr-config:/config
-      - ${MEDIA_ROOT}/media:/data/media
+      - ${MEDIA_ROOT}:/data
     restart: always
     logging: *default-logging
     healthcheck:
