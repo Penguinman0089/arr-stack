@@ -166,12 +166,17 @@
         }
 
         .secret-links {
-            margin-top: 2rem;
-            display: none;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            margin-top: 1rem;
+            visibility: hidden;
+            pointer-events: none;
         }
 
         .secret-links.revealed {
-            display: block;
+            visibility: visible;
+            pointer-events: auto;
         }
 
         .secret-links a {
