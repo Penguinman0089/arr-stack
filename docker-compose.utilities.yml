@@ -18,6 +18,7 @@ volumes:
   homarr-config:
   homarr-data:
   landing-page:
+  diun-data:
 
 #########################
 # Networks              #
@@ -193,26 +194,32 @@ services:
       start_period: 10s
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # WATCHTOWER - Automatic Docker image updates. Checks for newer images on a
-  # schedule and recreates containers with the latest version. Runs Sundays at
-  # 4 AM (1 hour after backup cron) so you always have a pre-update snapshot.
-  # No web UI. Old images are cleaned up automatically.
+  # DIUN - Docker Image Update Notifier. Monitors running containers and
+  # checks registries for newer image versions. Sends webhook notifications
+  # (e.g. to Home Assistant) when updates are available. Does NOT auto-update.
+  # UGOS handles actual updates natively: Docker → Management → Image update.
+  # No web UI. Daily check at 6am by default (configurable via DIUN_SCHEDULE).
   # ═══════════════════════════════════════════════════════════════════════════
-  watchtower:
-    image: containrrr/watchtower:latest
-    container_name: watchtower
+  diun:
+    image: crazymax/diun:4.31.0
+    container_name: diun
     restart: always
+    command: serve
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - diun-data:/data
     networks:
       arr-stack:
         ipv4_address: 172.20.0.16
     environment:
       - TZ=${TZ}
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_SCHEDULE=0 0 4 * * 0
-      - WATCHTOWER_ROLLING_RESTART=true
-      - WATCHTOWER_TIMEOUT=60s
+      - DIUN_WATCH_WORKERS=10
+      - DIUN_WATCH_SCHEDULE=${DIUN_SCHEDULE:-0 6 * * *}
+      - DIUN_PROVIDERS_DOCKER=true
+      - DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT=true
+      - DIUN_NOTIF_WEBHOOK_ENDPOINT=${DIUN_WEBHOOK_URL:-}
+      - DIUN_NOTIF_WEBHOOK_METHOD=POST
+      - DIUN_NOTIF_WEBHOOK_CONTENTTYPE=application/json
     logging: *default-logging
 
   # ═══════════════════════════════════════════════════════════════════════════
