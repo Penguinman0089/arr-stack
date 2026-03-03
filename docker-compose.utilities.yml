@@ -217,9 +217,6 @@ services:
       - DIUN_WATCH_SCHEDULE=${DIUN_SCHEDULE:-0 6 * * *}
       - DIUN_PROVIDERS_DOCKER=true
       - DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT=true
-      - DIUN_NOTIF_WEBHOOK_ENDPOINT=${DIUN_WEBHOOK_URL:-}
-      - DIUN_NOTIF_WEBHOOK_METHOD=POST
-      - DIUN_NOTIF_WEBHOOK_CONTENTTYPE=application/json
     logging: *default-logging
 
   # ═══════════════════════════════════════════════════════════════════════════
