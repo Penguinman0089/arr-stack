@@ -27,7 +27,7 @@ docker compose -f docker-compose.utilities.yml up -d
 
 Homarr is a service dashboard that gives you quick-access links to every app in your stack. After first launch, open http://NAS_IP:7575 (or http://homarr.lan) and create an admin account.
 
-**Auto-populate your dashboard with all services:**
+**Create dashboard app entries for dashboard-visible services:**
 
 ```bash
 # 1. In the Homarr UI, go to: Management > Tools > API > click "Authentication" tab > create an API key
@@ -36,7 +36,7 @@ Homarr is a service dashboard that gives you quick-access links to every app in 
 ./scripts/setup-homarr.sh <NAS_IP> <API_KEY>
 ```
 
-This creates apps for all 17 services (Plex, Sonarr, Radarr, Pi-hole, etc.) with correct URLs, icons, and health-check ping URLs. After running the script:
+This creates app entries for the services with useful dashboards or external admin pages (Plex, Sonarr, Radarr, Pi-hole, etc.) with URLs, icons, and ping URLs where applicable. It does not place those apps on your Homarr board automatically. After running the script:
 
 1. Click the **pencil icon** (edit mode) on your board
 2. Click **+ Add item** > **App**

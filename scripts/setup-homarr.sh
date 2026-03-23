@@ -16,7 +16,7 @@
 #   ./scripts/setup-homarr.sh 192.168.1.100 eyJhbGciOi...
 #
 # What this does:
-#   - Creates all 17 service apps (with icons, URLs, and ping endpoints)
+#   - Creates app definitions for dashboard-visible services
 #   - You then drag them onto your board layout in the Homarr UI
 #
 # If API endpoints have changed, check Homarr's Swagger docs:
@@ -197,8 +197,8 @@ add_app \
 add_app \
     "Traefik" \
     "Reverse proxy dashboard — routes *.lan domains" \
-    "http://${NAS_IP}:8082" \
-    "http://${NAS_IP}:8082/api/rawdata" \
+    "http://${NAS_IP}:9090" \
+    "http://${NAS_IP}:9090/ping" \
     "traefik"
 
 # ── Monitoring ────────────────────────────────────────────────────────────
@@ -229,6 +229,13 @@ add_app \
     "http://${NAS_IP}:8838" \
     "http://${NAS_IP}:8838" \
     "duckdns"
+
+add_app \
+    "Landing Page" \
+    "Default homepage served from the root domain" \
+    "http://${NAS_IP}" \
+    "http://${NAS_IP}" \
+    "homepage"
 
 add_app \
     "Homarr" \
