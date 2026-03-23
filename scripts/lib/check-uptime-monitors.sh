@@ -13,7 +13,7 @@ check_uptime_monitors() {
         "duc"
         "FlareSolverr"
         "Plex"
-        "Overseerr"
+        "Seerr"
         "Pi-hole"
         "Prowlarr"
         "qBittorrent"

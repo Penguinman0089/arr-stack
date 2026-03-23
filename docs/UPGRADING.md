@@ -173,11 +173,11 @@ Settings → Manage → Libraries:
 
 This triggers a library rescan. NFO files ensure accurate identification.
 
-#### 9. Update Overseerr root folders
+#### 9. Update Seerr root folders
 
-Overseerr stores its own copy of the root folder paths. If not updated, new requests will fail with "Root folder does not exist":
+Seerr stores its own copy of the root folder paths. If not updated, new requests will fail with "Root folder does not exist":
 
-1. Open Overseerr → Settings → Services
+1. Open Seerr → Settings → Services
 2. Click Radarr server → change Root Folder from `/movies` to `/data/media/movies` → Save
 3. Click Sonarr server → change Root Folder from `/tv` to `/data/media/tv` → Save
 

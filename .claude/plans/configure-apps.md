@@ -22,7 +22,7 @@ APP-CONFIG.md walks users through ~40+ manual web UI steps across 8 services. Mo
 1. **Plex** — Sign in with Plex account, libraries, hardware transcoding (device-specific, Plex Pass required)
 2. **qBittorrent** — Change default password (security — user should choose)
 3. **Prowlarr** — Add indexers (user-specific credentials)
-4. **Overseerr** — Initial Plex login + service connections
+4. **Seerr** — Initial Plex login + service connections
 5. **SABnzbd** — Usenet provider credentials + folder config (user-specific)
 6. **Pi-hole** — Upstream DNS (simple, 1 step)
 
@@ -92,7 +92,7 @@ Self-contained bash script (~500-600 lines) that runs **on the NAS**. Follows pa
 - **Non-fatal failures** — each service wrapped independently, continues on failure
 - **`--dry-run` flag** — preview without making changes
 - **SABnzbd-conditional** — delay profiles and usenet download clients only if SABnzbd container is running
-- **Networking** — follows REFERENCE.md Service Connection Guide: `localhost` within Gluetun stack, `gluetun` hostname for Bazarr/Overseerr
+- **Networking** — follows REFERENCE.md Service Connection Guide: `localhost` within Gluetun stack, `gluetun` hostname for Bazarr/Seerr
 
 ## Files modified
 

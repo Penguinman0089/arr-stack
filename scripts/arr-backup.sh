@@ -199,11 +199,11 @@ VOLUME_SUFFIXES=(
   pihole-etc-dnsmasq      # Custom DNS settings (small)
 )
 
-# Request manager - detect which volume exists
-if docker volume inspect "${VOLUME_PREFIX}_overseerr-config" &>/dev/null; then
-  VOLUME_SUFFIXES+=(overseerr-config)
-elif docker volume inspect "${VOLUME_PREFIX}_seerr-config" &>/dev/null; then
+# Request manager - prefer the current Seerr volume, keep Overseerr as fallback
+if docker volume inspect "${VOLUME_PREFIX}_seerr-config" &>/dev/null; then
   VOLUME_SUFFIXES+=(seerr-config)
+elif docker volume inspect "${VOLUME_PREFIX}_overseerr-config" &>/dev/null; then
+  VOLUME_SUFFIXES+=(overseerr-config)
 fi
 
 # Large volumes excluded by default (regenerate by re-scanning/re-downloading):

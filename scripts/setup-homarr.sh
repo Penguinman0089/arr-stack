@@ -145,11 +145,11 @@ add_app \
     "plex"
 
 add_app \
-    "Overseerr" \
+    "Seerr" \
     "Request movies and TV shows" \
     "http://${NAS_IP}:5055" \
     "http://${NAS_IP}:5055/api/v1/status" \
-    "overseerr"
+    "seerr"
 
 add_app \
     "Tautulli" \

@@ -17,7 +17,7 @@ const PORTS = {
   prowlarr: 9696,
   qbittorrent: 8085,
   sabnzbd: 8082,
-  overseerr: 5055,
+  seerr: 5055,
   bazarr: 6767,
   pihole: 8081,
 } as const;
@@ -145,12 +145,12 @@ test.describe('UI screenshots', () => {
     await page.screenshot({ path: screenshotPath('sabnzbd'), fullPage: true });
   });
 
-  test('Overseerr — login and screenshot discover page', async ({ page }) => {
+  test('Seerr — login and screenshot discover page', async ({ page }) => {
     const plexToken = process.env.PLEX_TOKEN;
-    test.skip(!plexToken, 'PLEX_TOKEN not set (Overseerr uses Plex auth)');
+    test.skip(!plexToken, 'PLEX_TOKEN not set (Seerr uses Plex auth)');
 
-    // Authenticate via Overseerr's Plex auth API
-    const authRes = await page.request.post(url('overseerr', '/api/v1/auth/plex'), {
+    // Authenticate via Seerr's Plex auth API
+    const authRes = await page.request.post(url('seerr', '/api/v1/auth/plex'), {
       data: { authToken: plexToken },
     });
     expect(authRes.ok()).toBeTruthy();
@@ -172,12 +172,12 @@ test.describe('UI screenshots', () => {
       await page.context().addCookies(cookies);
     }
 
-    await page.goto(url('overseerr', '/'));
+    await page.goto(url('seerr', '/'));
     await page.waitForLoadState('networkidle');
     await page.waitForTimeout(2_000);
 
     expect(page.url()).not.toContain('login');
-    await page.screenshot({ path: screenshotPath('overseerr'), fullPage: true });
+    await page.screenshot({ path: screenshotPath('seerr'), fullPage: true });
   });
 
   test('Bazarr — screenshot dashboard', async ({ page }) => {

@@ -17,10 +17,10 @@ http:
       entryPoints: [web]
       service: plex-lan
 
-    overseerr-lan:
-      rule: "Host(`overseerr.lan`)"
+    seerr-lan:
+      rule: "Host(`seerr.lan`)"
       entryPoints: [web]
-      service: overseerr-lan
+      service: seerr-lan
 
     # === *arr Stack (VPN-protected via Gluetun) ===
     sonarr-lan:
@@ -98,7 +98,7 @@ http:
         servers:
           - url: "http://172.20.0.4:32400"
 
-    overseerr-lan:
+    seerr-lan:
       loadBalancer:
         servers:
           - url: "http://172.20.0.8:5055"

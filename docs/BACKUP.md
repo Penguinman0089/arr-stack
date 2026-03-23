@@ -28,7 +28,7 @@ The backup script (`scripts/arr-backup.sh`) backs up **essential configs only** 
 | bazarr-config | ~2MB | Subtitle provider credentials |
 | uptime-kuma-data | ~14MB | Monitor configurations |
 | pihole-etc-dnsmasq | ~4KB | Custom DNS settings |
-| overseerr-config | ~5MB | User accounts, requests |
+| seerr-config | ~5MB | User accounts, requests |
 
 **Total: ~60MB uncompressed, ~13MB compressed**
 
@@ -120,15 +120,15 @@ scp user@nas:/tmp/arr-stack-backup-*.tar.gz ./backup.tar.gz
 ### Single Volume Restore
 
 ```bash
-# On NAS via SSH - example: restore overseerr config
-docker compose -f docker-compose.arr-stack.yml stop overseerr
+# On NAS via SSH - example: restore Seerr config
+docker compose -f docker-compose.arr-stack.yml stop seerr
 
 docker run --rm \
-  -v ./backup/overseerr-config:/source:ro \
-  -v arr-stack_overseerr-config:/dest \
+  -v ./backup/seerr-config:/source:ro \
+  -v arr-stack_seerr-config:/dest \
   alpine cp -a /source/. /dest/
 
-docker compose -f docker-compose.arr-stack.yml start overseerr
+docker compose -f docker-compose.arr-stack.yml start seerr
 ```
 
 ---
@@ -160,8 +160,8 @@ If auto-detection fails, use `--prefix`:
 ### Request Manager Detection
 
 The script auto-detects which request manager volume exists and backs it up:
-- `overseerr-config` (Overseerr)
-- `seerr-config` (if upgrading from older Seerr setup)
+- `seerr-config` (Seerr)
+- `overseerr-config` (legacy Overseerr migration fallback)
 
 ---
 

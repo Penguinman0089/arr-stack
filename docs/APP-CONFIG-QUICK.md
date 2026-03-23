@@ -91,7 +91,7 @@ Config (⚙️) → Folders → set **absolute paths**:
 1. Indexers (left sidebar) → + → search by name → add your torrent indexers
 2. If using Usenet: add a Usenet indexer the same way (e.g., NZBGeek, DrunkenSlug)
 
-### 4. Overseerr — Connect to Plex and *arrs
+### 4. Seerr — Connect to Plex and *arrs
 
 1. Open `http://NAS_IP:5055`
 2. Sign in with your Plex account

@@ -71,7 +71,7 @@ Decide how you'll access your media stack:
 
 | Component | What it does | Which setup? |
 |-----------|--------------|--------------|
-| **Overseerr** | Request portal - users request shows/movies here | Core |
+| **Seerr** | Request portal - users request shows/movies here | Core |
 | **Plex** | Media player - like Netflix but for your own content | Core |
 | **Sonarr** | TV show manager - searches for episodes, sends to download client | Core |
 | **Radarr** | Movie manager - searches for movies, sends to download client | Core |
@@ -119,7 +119,7 @@ See [Quick Reference](REFERENCE.md) for full service lists, .lan URLs, and netwo
 This stack uses Plex, but you can swap to Jellyfin by modifying `docker-compose.arr-stack.yml`:
 
 1. **Replace the Plex service** with Jellyfin (`jellyfin/jellyfin`), port `8096`, and remove `PLEX_CLAIM` env var
-2. **Replace the Overseerr service** with Seerr or Jellyseerr
+2. **Keep Seerr** and connect it to Jellyfin during app setup
 3. **Update volumes**: `plex-config` → `jellyfin-config`/`jellyfin-cache`
 4. **Update Traefik routes**: `plex.lan`/`plex.yourdomain.com` → `jellyfin.lan`/`jellyfin.yourdomain.com`, point to port `8096`
 5. **Update Pi-hole DNS**: add `jellyfin.lan` entry
@@ -467,12 +467,12 @@ Compare the IPs — qBittorrent should show your VPN's IP, not your home IP.
 
 Your media stack is fully configured. The two services you'll use most:
 
-- **Overseerr** — `http://NAS_IP:5055` — Request new shows and movies
+- **Seerr** — `http://NAS_IP:5055` — Request new shows and movies
 - **Plex** — `http://NAS_IP:32400/web` — Watch your media library
 
 > Replace `NAS_IP` with your NAS's IP address (e.g., `192.168.1.50`). For all service URLs, ports, and network details, see [Quick Reference](REFERENCE.md).
 
-**Try it out:** Open Overseerr, request a show or movie, then watch it download in Sonarr/Radarr and appear in Plex.
+**Try it out:** Open Seerr, request a show or movie, then watch it download in Sonarr/Radarr and appear in Plex.
 
 **What's next?**
 - **Stop here** if IP:port access is fine for you

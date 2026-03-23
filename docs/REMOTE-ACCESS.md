@@ -2,7 +2,7 @@
 
 > Return to [Setup Guide](SETUP.md)
 
-Watch and request media from anywhere via `plex.yourdomain.com` and `overseerr.yourdomain.com`.
+Watch and request media from anywhere via `plex.yourdomain.com` and `seerr.yourdomain.com`.
 
 **Requirements:**
 - Buy a new, external domain name (~$10/year) — [Cloudflare Registrar](https://www.cloudflare.com/products/registrar/) is simplest
@@ -73,8 +73,8 @@ Edit `traefik/dynamic/vpn-services.yml` and replace the Host rules:
 # Replace yourdomain.com with your actual domain
 plex:
   rule: "Host(`plex.yourdomain.com`)"  # ← your domain
-overseerr:
-  rule: "Host(`overseerr.yourdomain.com`)"  # ← your domain
+seerr:
+  rule: "Host(`seerr.yourdomain.com`)"  # ← your domain
 ```
 
 > **Note:** The `.yml` files are gitignored. Your customized configs won't be overwritten when you `git pull` updates.
@@ -146,7 +146,7 @@ From your phone on cellular data (not WiFi):
 ## ✅ + remote access Complete!
 
 **Congratulations!** You now have:
-- Plex and Overseerr accessible from anywhere via `yourdomain.com`
+- Plex and Seerr accessible from anywhere via `yourdomain.com`
 - HTTPS encryption for all external traffic
 - No ports exposed on your router
 
@@ -154,6 +154,6 @@ From your phone on cellular data (not WiFi):
 - **[Backup](SETUP.md#backup)** — Protect your configs
 - **[Optional Utilities](UTILITIES.md)** — Monitoring, auto-recovery, disk usage
 
-> **Need full network access remotely?** Cloudflare Tunnel only exposes HTTP services (Plex, Overseerr). If you need to access admin UIs (Sonarr, Radarr, etc.) or `.lan` domains from outside your home, look into [Tailscale](https://tailscale.com/) — it's free for personal use and works even behind CGNAT. Setup is not covered here.
+> **Need full network access remotely?** Cloudflare Tunnel only exposes HTTP services (Plex, Seerr). If you need to access admin UIs (Sonarr, Radarr, etc.) or `.lan` domains from outside your home, look into [Tailscale](https://tailscale.com/) — it's free for personal use and works even behind CGNAT. Setup is not covered here.
 
 Issues? [Report on GitHub](https://github.com/Pharkie/ultimate-arr-stack/issues) or [chat on Reddit](https://www.reddit.com/user/Jeff46K4/).

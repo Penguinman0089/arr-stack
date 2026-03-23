@@ -5,12 +5,12 @@
 Your stack is running! Now configure each app to work together.
 
 **Configuration order:** Services depend on each other, so configure them in the order below:
-1. Plex (media server — needed before Overseerr)
+1. Plex (media server — needed before Seerr)
 2. qBittorrent (downloads — needed before Sonarr/Radarr)
 3. SABnzbd (optional Usenet — needed before Sonarr/Radarr if using)
 4. Sonarr & Radarr (library managers — need qBit/SABnzbd configured first)
 5. Prowlarr (indexers — needs Sonarr/Radarr configured first)
-6. Overseerr (requests — needs Plex + Sonarr/Radarr configured first)
+6. Seerr (requests — needs Plex + Sonarr/Radarr configured first)
 7. Bazarr (subtitles — needs Sonarr/Radarr configured first)
 8. Pi-hole (DNS — independent, do anytime)
 
@@ -214,7 +214,7 @@ This gives Usenet a 30-minute head start before considering torrents.
 
 > **Applies to both Sonarr (step 4 above) and Radarr (step 4 above).**
 >
-> **Why this matters:** Without NFO files, Plex identifies media by guessing from the filename. For movies or shows with common titles shared by multiple entries on TMDB, it can match the wrong one. When the TMDB IDs don't agree between Radarr/Sonarr and Plex, Overseerr can't link them — so requests stay stuck at "Requested" even though the file is downloaded and playable.
+> **Why this matters:** Without NFO files, Plex identifies media by guessing from the filename. For movies or shows with common titles shared by multiple entries on TMDB, it can match the wrong one. When the TMDB IDs don't agree between Radarr/Sonarr and Plex, Seerr can't link them — so requests stay stuck at "Requested" even though the file is downloaded and playable.
 >
 > Enabling NFO metadata makes Radarr/Sonarr write a small `.nfo` file alongside each media file containing the correct TMDB/IMDB/TVDB IDs. Plex reads these instead of guessing. This eliminates the entire class of metadata mismatch bugs.
 >
@@ -249,7 +249,7 @@ Manages torrent/Usenet indexers and syncs them to Sonarr/Radarr.
 6. **Connect to Radarr:** Same process with `http://localhost:7878`
 7. **Sync:** Settings → Apps → Sync App Indexers
 
-## 4.7 Overseerr (Request Manager)
+## 4.7 Seerr (Request Manager)
 
 Lets users browse and request movies/TV shows.
 

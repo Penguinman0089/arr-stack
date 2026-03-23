@@ -121,7 +121,7 @@ docker restart uptime-kuma
 | Prowlarr | HTTP | `http://gluetun:9696/ping` | Via Gluetun |
 | qBittorrent | HTTP | `http://gluetun:8085` | Via Gluetun |
 | Radarr | HTTP | `http://gluetun:7878/ping` | Via Gluetun |
-| Overseerr | HTTP | `http://overseerr:5055/api/v1/status` | Has own IP |
+| Seerr | HTTP | `http://seerr:5055/api/v1/status` | Has own IP |
 | Sonarr | HTTP | `http://gluetun:8989/ping` | Via Gluetun |
 | Traefik | HTTP | `http://traefik:80/ping` | Has own IP |
 
