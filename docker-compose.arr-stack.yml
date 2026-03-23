@@ -285,7 +285,7 @@ services:
       - "${RENDER_GROUP_ID:-0}"  # Find ID: getent group render | cut -d: -f3
     volumes:
       - plex-config:/config
-      - ${MEDIA_ROOT}:/data:ro
+      - ${MEDIA_ROOT}:/data
     networks:
       arr-stack:
         ipv4_address: 172.20.0.4
