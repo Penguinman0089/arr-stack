@@ -278,7 +278,7 @@ services:
   # Access: homarr.lan | NAS_IP:7575 (LAN-only)
   # ═══════════════════════════════════════════════════════════════════════════
   homarr:
-    image: ghcr.io/homarr-labs/homarr:latest
+    image: ghcr.io/homarr-labs/homarr:v1.56.1
     container_name: homarr
     restart: always
     ports:

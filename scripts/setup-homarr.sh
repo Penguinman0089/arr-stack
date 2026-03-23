@@ -51,6 +51,30 @@ check_homarr() {
     echo -e "${GREEN}✓ Homarr is reachable (HTTP ${HTTP_CODE})${NC}"
 }
 
+check_api_support() {
+    echo -e "${BLUE}Checking Homarr app API support...${NC}"
+
+    local openapi_doc
+    openapi_doc=$(curl -s "${HOMARR_URL}/api/openapi" 2>/dev/null || true)
+
+    if [[ -z "${openapi_doc}" ]]; then
+        echo -e "${RED}✗ Could not fetch Homarr OpenAPI document${NC}"
+        echo "  This script requires a Homarr build that exposes the app creation API."
+        echo "  Open ${HOMARR_URL}/swagger-ui and verify the apps routes exist."
+        exit 1
+    fi
+
+    if ! echo "${openapi_doc}" | grep -q '"/api/apps"'; then
+        echo -e "${RED}✗ This Homarr instance does not expose the app creation API${NC}"
+        echo "  The OpenAPI document has no /api/apps route, so automated app creation cannot work."
+        echo "  This usually means your installed Homarr version/build is incompatible with this script."
+        echo "  Use the Homarr UI to create apps manually, or switch to a compatible Homarr version."
+        exit 1
+    fi
+
+    echo -e "${GREEN}✓ Homarr exposes the app creation API${NC}"
+}
+
 add_app() {
     local name="$1"
     local description="$2"
@@ -107,6 +131,7 @@ echo -e "${BLUE}╚════════════════════�
 echo ""
 
 check_homarr
+check_api_support
 
 # ── Media ─────────────────────────────────────────────────────────────────
 echo ""
