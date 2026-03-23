@@ -45,7 +45,7 @@ services:
   # Access: penguinman0089.com (via Cloudflare Tunnel)
   # ═══════════════════════════════════════════════════════════════════════════
   landing-page:
-    image: nginx:alpine
+    image: nginx:latest
     container_name: landing-page
     restart: always
     networks:
@@ -67,7 +67,7 @@ services:
   # No web UI. Runs silently in background.
   # ═══════════════════════════════════════════════════════════════════════════
   deunhealth:
-    image: qmcgaw/deunhealth:v0.3.0
+    image: qmcgaw/deunhealth:latest
     container_name: deunhealth
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -87,7 +87,7 @@ services:
   # Access: uptime.lan | NAS_IP:3001 (LAN-only, use WireGuard for remote)
   # ═══════════════════════════════════════════════════════════════════════════
   uptime-kuma:
-    image: louislam/uptime-kuma:2
+    image: louislam/uptime-kuma:latest
     container_name: uptime-kuma
     restart: always
     ports:
@@ -114,7 +114,7 @@ services:
   # Note: Re-indexes daily at 4am. Manual: docker restart duc
   # ═══════════════════════════════════════════════════════════════════════════
   duc:
-    image: mkoestler/duc-service:v1.1.0
+    image: mkoestler/duc-service:latest
     container_name: duc
     networks:
       arr-stack:
@@ -153,7 +153,7 @@ services:
   # Access: beszel.lan | NAS_IP:8090 (LAN-only, use WireGuard for remote)
   # ═══════════════════════════════════════════════════════════════════════════
   beszel:
-    image: henrygd/beszel:0.18
+    image: henrygd/beszel:latest
     container_name: beszel
     restart: always
     ports:
@@ -176,7 +176,7 @@ services:
       start_period: 30s
 
   beszel-agent:
-    image: henrygd/beszel-agent:0.18
+    image: henrygd/beszel-agent:latest
     container_name: beszel-agent
     restart: always
     network_mode: host
@@ -201,7 +201,7 @@ services:
   # No web UI. Daily check at 6am by default (configurable via DIUN_SCHEDULE).
   # ═══════════════════════════════════════════════════════════════════════════
   diun:
-    image: crazymax/diun:4.31.0
+    image: crazymax/diun:latest
     container_name: diun
     restart: always
     command: serve
@@ -278,7 +278,7 @@ services:
   # Access: homarr.lan | NAS_IP:7575 (LAN-only)
   # ═══════════════════════════════════════════════════════════════════════════
   homarr:
-    image: ghcr.io/homarr-labs/homarr:v1.56.1
+    image: ghcr.io/homarr-labs/homarr:latest
     container_name: homarr
     restart: always
     ports:
@@ -308,7 +308,7 @@ services:
   # Dry run first: docker compose -f docker-compose.utilities.yml run --rm -e DRY_RUN=true configarr
   # ═══════════════════════════════════════════════════════════════════════════
   configarr:
-    image: ghcr.io/raydak-labs/configarr:1.23.0
+    image: ghcr.io/raydak-labs/configarr:latest
     container_name: configarr
     restart: "no"
     networks:

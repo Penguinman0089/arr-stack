@@ -19,7 +19,7 @@ name: cloudflared
 
 services:
   cloudflared:
-    image: cloudflare/cloudflared:2026.2.0
+    image: cloudflare/cloudflared:latest
     container_name: cloudflared
     command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
     environment:

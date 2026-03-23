@@ -27,7 +27,7 @@ docker compose -f docker-compose.utilities.yml up -d
 
 Homarr is a service dashboard that gives you quick-access links to every app in your stack. After first launch, open http://NAS_IP:7575 (or http://homarr.lan) and create an admin account.
 
-This stack pins Homarr to an immutable image tag instead of `latest`. The floating `latest` tag can drift to builds with API differences that break the setup automation.
+This stack now tracks Homarr on `latest`, so its API can change underneath the setup automation. If the script stops working after an update, check Homarr's OpenAPI output first.
 
 **Create dashboard app entries for dashboard-visible services:**
 
@@ -50,7 +50,7 @@ This creates app entries for the services with useful dashboards or external adm
 >
 > **Compatibility note:** The script depends on Homarr exposing the `/api/apps` route in its OpenAPI document. If `http://NAS_IP:7575/api/openapi` returns an empty `paths` object or the script reports that `/api/apps` is missing, your installed Homarr build is not compatible with this automation path. In that case, create the apps manually in the Homarr UI.
 >
-> **Upgrading Homarr:** When you want a newer Homarr version, update the pinned image tag in [docker-compose.utilities.yml](docker-compose.utilities.yml), restart Homarr, and verify that `http://NAS_IP:7575/api/openapi` includes `/api/apps` before using the setup script.
+> **Upgrading Homarr:** Because this stack now tracks `latest`, restart Homarr after updates and verify that `http://NAS_IP:7575/api/openapi` still includes `/api/apps` before using the setup script.
 
 ## Tautulli Setup
 
