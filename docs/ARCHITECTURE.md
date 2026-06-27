@@ -12,11 +12,12 @@ When someone requests a movie or TV show, here's what happens:
 │ (request)   │     │ (manage)     │     │ (indexers)│     │   SABnzbd   │     │ (watch)  │
 │             │     │              │     │           │     │ (download)  │     │          │
 └─────────────┘     └──────────────┘     └───────────┘     └─────────────┘     └──────────┘
-      │                    │                   │                  │                  │
-      │                    │                   │                  │                  │
-      └────────────────────┴───────────────────┴──────────────────┘                  │
-                           Through VPN (Gluetun)                              Not through VPN
+                                              │                   │                  │
+                                              └───────────────────┘                  │
+                                          Through VPN (Gluetun)               Not through VPN
 ```
+
+> Only **Prowlarr** and the **download clients** (qBittorrent/SABnzbd) run through the VPN. Seerr, Sonarr, Radarr and Jellyfin run on the bridge — Sonarr/Radarr only contact metadata providers and internal services, so they need no VPN.
 
 1. **Seerr** - User requests a show or movie
 2. **Sonarr/Radarr** - Searches for releases, sends to download client
@@ -37,10 +38,10 @@ When someone requests a movie or TV show, here's what happens:
                               ┌─────────────────────────────────────────┐
                               │            GLUETUN (VPN)                │
                               │                                         │
-Internet ◄───VPN Tunnel───────│  qBit  Sonarr  Radarr  Prowlarr  Flare  │
-                              │       ▲         ▲       ▲        ▲      │
-                              │       │         │       │        │      │
-                              │       └─────────┴───────┴────────┘      │
+Internet ◄───VPN Tunnel───────│  qBit   SABnzbd   Prowlarr   Flare      │
+                              │    ▲        ▲         ▲        ▲        │
+                              │    │        │         │        │        │
+                              │    └────────┴─────────┴────────┘        │
                               │         All share localhost             │
                               └─────────────────────────────────────────┘
                                                  │
@@ -50,8 +51,8 @@ Internet ◄───VPN Tunnel───────│  qBit  Sonarr  Radarr  P
 Internet ◄──Cloudflare Tunnel─│  Jellyfin    Seerr                     │
   (remote)                    │  (stream)    (requests)                 │
                               │                                         │
-LAN only ◄────────────────────│  Pi-hole     Sonarr      Radarr   ...  │
-  (local)                     │  (DNS)       (manage)    (manage)       │
+LAN only ◄────────────────────│  Pi-hole   Sonarr    Radarr   Bazarr   │
+  (local)                     │  (DNS)     (manage)  (manage)  (subs)   │
                               └─────────────────────────────────────────┘
 ```
 
@@ -59,19 +60,20 @@ LAN only ◄────────────────────│  Pi-
 
 ## Service Connections
 
-Services inside Gluetun's network use `localhost` to talk to each other. Services outside must use the `gluetun` hostname.
+Services behind Gluetun (qBittorrent, SABnzbd, Prowlarr, FlareSolverr) use `localhost` to talk to each other. Crossing the bridge↔VPN boundary needs care — the VPN namespace's DNS is Pi-hole, which can't resolve Docker container names, so VPN-side services must reach bridge services by **IP**.
 
 ```
-Inside Gluetun (same network):       Outside Gluetun:
-─────────────────────────────        ─────────────────
-Sonarr → qBittorrent                 Seerr → Sonarr
-  └── localhost:8085                   └── gluetun:8989
+Bridge → VPN-side (use gluetun):     VPN-side → bridge (use IP):
+─────────────────────────────        ──────────────────────────
+Sonarr → qBittorrent                 Prowlarr → Sonarr
+  └── gluetun:8085                      └── 172.20.0.10:8989
+Radarr → SABnzbd                     Prowlarr → Radarr
+  └── gluetun:8080                      └── 172.20.0.11:7878
 
-Radarr → qBittorrent                 Bazarr → Radarr
-  └── localhost:8085                   └── gluetun:7878
-
-Prowlarr → Sonarr
-  └── localhost:8989
+Bridge → bridge (use name):          Behind-VPN → behind-VPN (localhost):
+─────────────────────────────        ──────────────────────────
+Seerr/Bazarr → Sonarr                Prowlarr → FlareSolverr
+  └── sonarr:8989 / radarr:7878        └── localhost:8191
 ```
 
 ## Network Layout
@@ -83,10 +85,12 @@ arr-stack network (172.20.0.0/24)
 ───────────────────────────────────────────────────────────────────────────────────
 │ IP           │ Service      │ Notes                          │ Required for     │
 ├──────────────┼──────────────┼────────────────────────────────┼──────────────────│
-│ 172.20.0.3   │ Gluetun      │ VPN gateway + arr services     │ Core             │
+│ 172.20.0.3   │ Gluetun      │ VPN gateway (qBit/SAB/Prowlarr)│ Core             │
 │ 172.20.0.4   │ Jellyfin     │ Media server                   │ Core             │
 │ 172.20.0.8   │ Seerr        │ Request portal                 │ Core             │
 │ 172.20.0.9   │ Bazarr       │ Subtitles                      │ Core             │
+│ 172.20.0.10  │ Sonarr       │ TV manager (bridge, not VPN)   │ Core             │
+│ 172.20.0.11  │ Radarr       │ Movie manager (bridge, not VPN)│ Core             │
 │ 172.20.0.5   │ Pi-hole      │ DNS server                     │ Core             │
 │ 172.20.0.2   │ Traefik      │ Reverse proxy                  │ + local DNS      │
 │ 172.20.0.12  │ Cloudflared  │ Tunnel to Cloudflare           │ + remote access (Cloudflared) │

@@ -41,9 +41,9 @@
 | **Gluetun** | **172.20.0.3** | — | VPN gateway |
 | ↳ qBittorrent | (via Gluetun) | 8085 | Torrent downloads |
 | ↳ SABnzbd | (via Gluetun) | 8082 | Usenet downloads |
-| ↳ Sonarr | (via Gluetun) | 8989 | TV shows |
-| ↳ Radarr | (via Gluetun) | 7878 | Movies |
 | ↳ Prowlarr | (via Gluetun) | 9696 | Indexer manager |
+| Sonarr | 172.20.0.10 | 8989 | TV shows (own IP — not via VPN) |
+| Radarr | 172.20.0.11 | 7878 | Movies (own IP — not via VPN) |
 | Jellyfin | 172.20.0.4 | 8096 | Media server |
 | Pi-hole | 172.20.0.5 | 8081 | DNS ad-blocking (`/admin`) |
 | Seerr | 172.20.0.8 | 5055 | Request management |
@@ -147,9 +147,10 @@ Services start in dependency order (handled automatically by `depends_on`):
 
 1. **Pi-hole** → DNS ready (for containers; optionally your LAN)
 2. **Gluetun** → VPN connected (uses Pi-hole for internal DNS)
-3. **Sonarr, Radarr, Prowlarr, qBittorrent, SABnzbd** → VPN-protected services
-4. **Seerr, Bazarr** → Connect to Sonarr/Radarr via Gluetun
-5. **FlareSolverr** → Cloudflare bypass (via Gluetun, shares VPN with Prowlarr)
+3. **Prowlarr, qBittorrent, SABnzbd** → VPN-protected services (behind Gluetun)
+4. **Sonarr, Radarr** → bridge services (own IPs, not via VPN); reach the download clients via `gluetun`
+5. **Seerr, Bazarr** → connect to Sonarr/Radarr by bridge hostname (`sonarr`/`radarr`)
+6. **FlareSolverr** → Cloudflare bypass (via Gluetun, shares VPN with Prowlarr)
 6. **Jellyfin, WireGuard** → Independent, start anytime
 
 ## Compose Files

@@ -130,14 +130,15 @@ Searches for TV shows, sends download links to qBittorrent/SABnzbd, and organize
 
    **qBittorrent (torrents):**
    - Add → qBittorrent
-   - Host: `localhost` (Sonarr & qBittorrent share gluetun's network)
+   - Host: `gluetun` (Sonarr is on the bridge; qBittorrent is behind the VPN)
    - Port: `8085`
    - Category: `tv`
 
    **SABnzbd (Usenet):** *(if configured)*
    - Add → SABnzbd
-   - Host: `localhost` (SABnzbd also runs via gluetun)
+   - Host: `gluetun` (SABnzbd is behind the VPN)
    - Port: `8080`
+   - **Note:** SABnzbd's `host_whitelist` must include `gluetun` or it returns `403 Forbidden`.
    - API Key: (from SABnzbd Config → General)
    - Category: `tv`
 
@@ -173,7 +174,7 @@ Searches for movies, sends download links to qBittorrent/SABnzbd, and organizes 
 
    **qBittorrent (torrents):**
    - Add → qBittorrent
-   - Host: `localhost` (Radarr & qBittorrent share gluetun's network)
+   - Host: `gluetun` (Radarr is on the bridge; qBittorrent is behind the VPN)
    - Port: `8085`
    - Category: `movies`
 
@@ -247,9 +248,10 @@ Manages torrent/Usenet indexers and syncs them to Sonarr/Radarr.
    - **Note:** FlareSolverr doesn't bypass all Cloudflare protections - some indexers may still fail. If you have issues, [Byparr](https://github.com/ThePhaseless/Byparr) is a drop-in alternative using different browser tech.
 5. **Connect to Sonarr:**
    - Settings → Apps → Add → Sonarr
-   - Sonarr Server: `http://localhost:8989` (they share gluetun's network)
+   - Prowlarr Server: `http://gluetun:9696` (how Sonarr reaches Prowlarr, which is behind the VPN)
+   - Sonarr Server: `http://172.20.0.10:8989` (Prowlarr is inside gluetun's namespace where DNS can't resolve container names — use Sonarr's bridge IP)
    - API Key: (from Sonarr → Settings → General → Security)
-6. **Connect to Radarr:** Same process with `http://localhost:7878`
+6. **Connect to Radarr:** Same process — Radarr Server: `http://172.20.0.11:7878`
 7. **Sync:** Settings → Apps → Sync App Indexers
 
 ## 4.7 Seerr (Request Manager)
@@ -263,12 +265,12 @@ Lets users browse and request movies/TV shows.
 3. **Set Jellyfin External URL:** Settings → Jellyfin → **External URL:** `http://jellyfin.lan` (or `http://NAS_IP:8096`) — makes "Play on Jellyfin" links work in your browser
 4. **Configure Services:**
    - Settings → Services → Add Radarr:
-     - **Hostname:** `gluetun` (internal Docker hostname)
+     - **Hostname:** `radarr` (Radarr is on the bridge with its own Docker DNS name)
      - **Port:** `7878`
      - **Quality Profile:** `UHD Bluray + WEB` (ensures all requests get the best available quality)
      - **External URL:** `http://radarr.lan` (or `http://NAS_IP:7878`) — makes "Open in Radarr" links work in your browser
    - Settings → Services → Add Sonarr:
-     - **Hostname:** `gluetun`
+     - **Hostname:** `sonarr`
      - **Port:** `8989`
      - **Quality Profile:** `Ultra-HD`
      - **External URL:** `http://sonarr.lan` (or `http://NAS_IP:8989`)
@@ -283,8 +285,8 @@ Automatically downloads subtitles for your media.
 
 1. **Access:** `http://NAS_IP:6767`
 2. **Enable Authentication:** Settings → General → Security → Forms
-3. **Connect to Sonarr:** Settings → Sonarr → `http://gluetun:8989` (Sonarr runs via gluetun)
-4. **Connect to Radarr:** Settings → Radarr → `http://gluetun:7878` (Radarr runs via gluetun)
+3. **Connect to Sonarr:** Settings → Sonarr → Address `sonarr`, Port `8989` (Sonarr is on the bridge)
+4. **Connect to Radarr:** Settings → Radarr → Address `radarr`, Port `7878` (Radarr is on the bridge)
 5. **Add Providers:** Settings → Providers (OpenSubtitles, etc.)
 6. **Enable Subtitle Sync:** Settings → Subtitles → Subtitle Synchronization:
    - **Subtitle Synchronization:** On — enables `ffsubsync` to re-time subtitles against the audio track

@@ -168,7 +168,7 @@ docker ps --format "table {{.Names}}\t{{.Status}}"
 
 Services showing `(unhealthy)` may need attention. Common causes:
 - **Gluetun unhealthy**: VPN connection lost — check `docker logs gluetun`
-- **qBittorrent/Sonarr/Radarr unhealthy**: Often caused by Gluetun being down (they share its network)
+- **qBittorrent/SABnzbd/Prowlarr unhealthy**: Often caused by Gluetun being down (they share its network). Sonarr/Radarr are on the bridge and not affected by a gluetun outage.
 - **Pi-hole unhealthy**: DNS resolution failing — check upstream DNS config
 
 ---
