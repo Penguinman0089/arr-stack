@@ -9,10 +9,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - **Jellyseerr requests no longer fail when the VPN reconnects.** This is the structural fix for the class of problem patched defensively in 1.7.21 (gluetun namespace churn leaving Jellyseerr unable to reach Radarr/Sonarr, requests stuck on *Failed*, `Unable to get queue` errors). With Sonarr/Radarr on the bridge, the Jellyseerr/Bazarr → Sonarr/Radarr path is immune to VPN flaps. Verified end-to-end on the NAS: download-client / app-sync / Bazarr / Jellyseerr connections all test green, `Unable to get queue` errors dropped to 0, qBittorrent + Prowlarr still exit via the VPN IP (Sonarr via the home IP, as intended), and all 14 E2E tests pass.
+- **Uptime Kuma monitors** for Sonarr/Radarr were still pinging `gluetun:8989`/`7878` (dead after the move) and false-alarming — repointed to `sonarr:8989` / `radarr:7878`, both back to `200 - OK`.
 
 ### Documentation
 - **`docs/MIGRATION-arr-off-vpn.md`**: full runbook (backups, recreate, the NAS-side app-config changes, verification incl. a VPN-still-protects check, rollback).
-- **`docs/REFERENCE.md` Service Connection Guide** rewritten for the new topology, including the two boundary gotchas: VPN-side services reach bridge services by **IP** (the VPN namespace's DNS is Pi-hole, which can't resolve container names), and SABnzbd's `host_whitelist` must include `gluetun`.
+- **Swept all docs to the new topology**: `REFERENCE.md` (Service Connection Guide, IP table, startup order), `APP-CONFIG.md` (download-client hosts → `gluetun`, Prowlarr apps → bridge IPs, Seerr/Bazarr → `sonarr`/`radarr`, SAB `host_whitelist` note), `ARCHITECTURE.md` (data-flow + VPN diagrams, connection examples, network table), `UTILITIES.md` (monitor URLs), `TROUBLESHOOTING.md` (stale-namespace section now scoped to qBit/SAB/Prowlarr/FlareSolverr), `MAINTENANCE.md`. Two boundary gotchas documented: VPN-side services reach bridge services by **IP** (the VPN namespace's DNS is Pi-hole, which can't resolve container names), and SABnzbd's `host_whitelist` must include `gluetun`.
 
 ## [1.7.22] - 2026-06-19
 
