@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.23] - 2026-06-27
+
+### Changed
+- **Sonarr and Radarr moved off the VPN onto the `arr-stack` bridge** (static IPs `172.20.0.10` / `172.20.0.11`), dropping `network_mode: service:gluetun`. They only ever contact metadata providers (TVDB/TMDB) and internal services — never indexers or peers — so they gain nothing from the VPN, and sharing gluetun's namespace meant every VPN reconnect briefly cut them off from Jellyseerr/Bazarr. qBittorrent, SABnzbd, Prowlarr and FlareSolverr **stay** behind gluetun (that is the traffic the VPN exists to hide). Gluetun no longer publishes 8989/7878; Sonarr/Radarr publish their own ports. Traefik routes updated to the new IPs.
+
+### Fixed
+- **Jellyseerr requests no longer fail when the VPN reconnects.** This is the structural fix for the class of problem patched defensively in 1.7.21 (gluetun namespace churn leaving Jellyseerr unable to reach Radarr/Sonarr, requests stuck on *Failed*, `Unable to get queue` errors). With Sonarr/Radarr on the bridge, the Jellyseerr/Bazarr → Sonarr/Radarr path is immune to VPN flaps. Verified end-to-end on the NAS: download-client / app-sync / Bazarr / Jellyseerr connections all test green, `Unable to get queue` errors dropped to 0, qBittorrent + Prowlarr still exit via the VPN IP (Sonarr via the home IP, as intended), and all 14 E2E tests pass.
+
+### Documentation
+- **`docs/MIGRATION-arr-off-vpn.md`**: full runbook (backups, recreate, the NAS-side app-config changes, verification incl. a VPN-still-protects check, rollback).
+- **`docs/REFERENCE.md` Service Connection Guide** rewritten for the new topology, including the two boundary gotchas: VPN-side services reach bridge services by **IP** (the VPN namespace's DNS is Pi-hole, which can't resolve container names), and SABnzbd's `host_whitelist` must include `gluetun`.
+
 ## [1.7.22] - 2026-06-19
 
 ### Changed
