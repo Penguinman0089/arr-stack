@@ -107,8 +107,8 @@ services:
     ports:
       # Ports for services using network_mode: "service:gluetun"
       # Enables direct local access without Traefik (http://NAS_IP:PORT)
-      - "8989:8989"   # Sonarr
-      - "7878:7878"   # Radarr
+      # NOTE: Sonarr (8989) & Radarr (7878) now run on the arr-stack bridge
+      # (their own static IPs) and publish their own ports — see those services.
       - "9696:9696"   # Prowlarr
       - "8085:8085"   # qBittorrent
       - "8082:8080"   # SABnzbd
@@ -195,26 +195,30 @@ services:
   # ═══════════════════════════════════════════════════════════════════════════
   # SONARR - TV show monitor. Watches for new episodes and sends to download.
   # Access: sonarr.lan | sonarr.yourdomain.com | NAS_IP:8989
+  # Runs on the arr-stack bridge (own IP 172.20.0.10), NOT behind the VPN:
+  # Sonarr only talks to metadata providers (TVDB/TMDB) + internal services,
+  # never to indexers/peers, so it needs no VPN. Staying on the bridge means a
+  # gluetun/VPN reconnect no longer cuts Sonarr off from Jellyseerr/Bazarr.
+  # It reaches the VPN-side download clients via the `gluetun` hostname.
   # ═══════════════════════════════════════════════════════════════════════════
   sonarr:
     image: lscr.io/linuxserver/sonarr:4.0.17
     container_name: sonarr
     <<: *lsio-security
-    network_mode: "service:gluetun"
-    depends_on:
-      gluetun:
-        condition: service_healthy
-        restart: true
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
+    ports:
+      - "8989:8989"   # Direct local access (http://NAS_IP:8989)
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.10
     volumes:
       - sonarr-config:/config
       - ${MEDIA_ROOT}:/data
     labels:
       - deunhealth.restart.on.unhealthy=true
-      - gluetun.dependent=true  # gluetun-recover restarts this if SIGKILLed by a gluetun restart
     restart: always
     logging: *default-logging
     healthcheck:
@@ -258,26 +262,28 @@ services:
   # ═══════════════════════════════════════════════════════════════════════════
   # RADARR - Movie monitor. Watches for new movies and sends to download.
   # Access: radarr.lan | radarr.yourdomain.com | NAS_IP:7878
+  # Runs on the arr-stack bridge (own IP 172.20.0.11), NOT behind the VPN —
+  # same rationale as Sonarr above. Reaches VPN-side download clients via the
+  # `gluetun` hostname.
   # ═══════════════════════════════════════════════════════════════════════════
   radarr:
     image: lscr.io/linuxserver/radarr:6.1.1
     container_name: radarr
     <<: *lsio-security
-    network_mode: "service:gluetun"
-    depends_on:
-      gluetun:
-        condition: service_healthy
-        restart: true
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
+    ports:
+      - "7878:7878"   # Direct local access (http://NAS_IP:7878)
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.11
     volumes:
       - radarr-config:/config
       - ${MEDIA_ROOT}:/data
     labels:
       - deunhealth.restart.on.unhealthy=true
-      - gluetun.dependent=true  # gluetun-recover restarts this if SIGKILLed by a gluetun restart
     restart: always
     logging: *default-logging
     healthcheck:

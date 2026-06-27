@@ -80,24 +80,26 @@
 
 ### Service Connection Guide
 
-**VPN-protected services** (qBittorrent, SABnzbd, Sonarr, Radarr, Prowlarr) share Gluetun's network via `network_mode: service:gluetun`. This means:
+**VPN-protected services** (qBittorrent, SABnzbd, Prowlarr, FlareSolverr) share Gluetun's network via `network_mode: service:gluetun` — these carry the traffic that must stay hidden (peers + indexer scraping).
+
+**Bridge services** (Sonarr, Radarr, Jellyfin, Seerr, Bazarr, …) run on the `arr-stack` bridge with their own IPs. Sonarr (172.20.0.10) and Radarr (172.20.0.11) are *not* behind the VPN: they only contact metadata providers (TVDB/TMDB) and internal services, so they need no VPN — and staying on the bridge keeps them reachable when a gluetun/VPN reconnect happens.
 
 | From | To | Use | Why |
 |------|-----|-----|-----|
-| Sonarr | qBittorrent | `localhost:8085` | Same network stack |
-| Radarr | qBittorrent | `localhost:8085` | Same network stack |
-| Prowlarr | Sonarr | `localhost:8989` | Same network stack |
-| Prowlarr | Radarr | `localhost:7878` | Same network stack |
-| Prowlarr | FlareSolverr | `localhost:8191` | Same network stack (shares Gluetun) |
-| Seerr | Sonarr | `gluetun:8989` | Must go through gluetun |
-| Seerr | Radarr | `gluetun:7878` | Must go through gluetun |
+| Sonarr | qBittorrent | `gluetun:8085` | Download client is behind the VPN |
+| Radarr | qBittorrent | `gluetun:8085` | Download client is behind the VPN |
+| Sonarr | SABnzbd | `gluetun:8080` | Download client is behind the VPN |
+| Radarr | SABnzbd | `gluetun:8080` | Download client is behind the VPN |
+| Prowlarr | Sonarr | `sonarr:8989` | Sonarr is on the bridge (own IP) |
+| Prowlarr | Radarr | `radarr:7878` | Radarr is on the bridge (own IP) |
+| Prowlarr | FlareSolverr | `localhost:8191` | Same network stack (both behind Gluetun) |
+| Seerr | Sonarr | `sonarr:8989` | Both on the bridge |
+| Seerr | Radarr | `radarr:7878` | Both on the bridge |
 | Seerr | Jellyfin | `jellyfin:8096` | Both have own IPs |
-| Bazarr | Sonarr | `gluetun:8989` | Must go through gluetun |
-| Bazarr | Radarr | `gluetun:7878` | Must go through gluetun |
-| Sonarr | SABnzbd | `localhost:8080` | Same network stack |
-| Radarr | SABnzbd | `localhost:8080` | Same network stack |
+| Bazarr | Sonarr | `sonarr:8989` | Both on the bridge |
+| Bazarr | Radarr | `radarr:7878` | Both on the bridge |
 
-> **Why `gluetun` not `sonarr`?** Services sharing gluetun's network don't get their own Docker DNS entries. Seerr/Bazarr must use `gluetun` hostname (or `172.20.0.3`) to reach them.
+> **Reaching VPN-side services from the bridge:** use the `gluetun` hostname (or `172.20.0.3`) — qBittorrent/SABnzbd/Prowlarr listen inside gluetun's namespace, so they have no Docker DNS name of their own. Gluetun's `FIREWALL_OUTBOUND_SUBNETS` includes `172.20.0.0/24`, so Prowlarr (in the VPN namespace) can reach Sonarr/Radarr on the bridge.
 
 ## Common Commands
 
