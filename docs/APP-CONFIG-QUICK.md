@@ -10,8 +10,8 @@ The [configure-apps.sh](../scripts/configure-apps.sh) script automates ~22 confi
 
 Work through these in order. Each app needs you to create an account or complete a first-run wizard before anything else works.
 
-**Plex** — `http://NAS_IP:32400/web`
-Sign in with your Plex account. Skip adding libraries for now — you'll do that in Step 3.
+**Jellyfin** — `http://NAS_IP:8096`
+Complete the setup wizard (language, admin user, etc.). Skip adding libraries for now — you'll do that in Step 3.
 
 **qBittorrent** — `http://NAS_IP:8085`
 Get the temporary password:
@@ -39,7 +39,7 @@ Create admin account when prompted.
 
 ```bash
 # SSH to your NAS:
-cd /volume1/docker/arr-stack
+cd $NAS_STACK_DIR
 
 # If you've changed qBittorrent's default password:
 QBIT_PASSWORD='yourpassword' ./scripts/configure-apps.sh
@@ -60,7 +60,7 @@ Preview what it will do without making changes:
 
 | Service | Settings |
 |---------|----------|
-| qBittorrent | Categories (`tv`/`movies`), auto torrent management, encryption, UPnP off |
+| qBittorrent | Categories (`tv`/`movies`), auto torrent management, encryption, UPnP off, stall timeout, concurrent limits |
 | Sonarr | Root folder, qBittorrent + SABnzbd download clients, TRaSH naming, NFO metadata, Reject ISO custom format, Usenet delay profile |
 | Radarr | Root folder, qBittorrent + SABnzbd download clients, TRaSH naming, NFO metadata, Reject ISO custom format, Usenet delay profile |
 | Prowlarr | FlareSolverr proxy, Sonarr + Radarr app sync |
@@ -70,13 +70,12 @@ Preview what it will do without making changes:
 
 The script handles qBittorrent, Sonarr, Radarr, Prowlarr, and Bazarr. Complete these remaining services in order:
 
-### 1. Plex — Add libraries
+### 1. Jellyfin — Add libraries
 
-1. Settings → Manage → Libraries → Add Library
-2. Movies → Add folders → `/data/media/movies`
-3. TV Shows → Add folders → `/data/media/tv`
+- Movies → Content type "Movies" → Folder `/data/media/movies`
+- TV Shows → Content type "Shows" → Folder `/data/media/tv`
 
-> **Optional:** [Enable hardware transcoding](APP-CONFIG-ADVANCED.md#hardware-transcoding-intel-quick-sync) for GPU-accelerated playback (recommended for Ugreen NAS). Requires Plex Pass.
+> **Optional:** [Enable hardware transcoding](APP-CONFIG-ADVANCED.md#hardware-transcoding-intel-quick-sync) for GPU-accelerated playback (recommended for Ugreen NAS).
 
 ### 2. SABnzbd — Set download folders (skip if not using Usenet)
 
@@ -91,17 +90,19 @@ Config (⚙️) → Folders → set **absolute paths**:
 1. Indexers (left sidebar) → + → search by name → add your torrent indexers
 2. If using Usenet: add a Usenet indexer the same way (e.g., NZBGeek, DrunkenSlug)
 
-### 4. Seerr — Connect to Plex and *arrs
+### 4. Seerr — Connect to Jellyfin and *arrs
 
 1. Open `http://NAS_IP:5055`
-2. Sign in with your Plex account
-3. Settings → Plex → enter Plex server details (hostname: `plex`, port: `32400`)
+2. Sign in with Jellyfin: URL `http://jellyfin:8096`, enter your Jellyfin credentials
+3. Settings → Jellyfin → set **External URL** to `http://jellyfin.lan` (or `http://NAS_IP:8096`) — makes "Play on Jellyfin" links work in your browser
 4. Settings → Services → Add Radarr:
-   - Hostname: `gluetun`, Port: `7878`
+   - Hostname: `gluetun`, Port: `7878`, Quality Profile: `UHD Bluray + WEB`
    - External URL: `http://radarr.lan` (or `http://NAS_IP:7878`)
-4. Settings → Services → Add Sonarr:
-   - Hostname: `gluetun`, Port: `8989`
+5. Settings → Services → Add Sonarr:
+   - Hostname: `gluetun`, Port: `8989`, Quality Profile: `Ultra-HD`
    - External URL: `http://sonarr.lan` (or `http://NAS_IP:8989`)
+6. Settings → Jellyfin → toggle **Movies** and **TV** on → Save
+7. Click **Sync Libraries** then **Start Scan**
 
 ### 5. Bazarr — Add subtitle providers
 

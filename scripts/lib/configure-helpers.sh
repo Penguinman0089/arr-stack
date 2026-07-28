@@ -73,21 +73,29 @@ api_get()  { _api_request GET  "$@"; }
 api_post() { _api_request POST "$@"; }
 api_put()  { _api_request PUT  "$@"; }
 
-# Wait for a service to respond (60s timeout)
+# Wait for a service to respond (default 180s wall-clock timeout, override with WAIT_TIMEOUT)
+# 180s covers first-boot *arr DB migrations on slower NAS hardware.
 # Accepts 2xx, 3xx, and 401 (auth required = service is up)
+# Per-curl --max-time prevents one hung connection from eating the entire budget.
 wait_for_service() {
     local name="$1" url="$2"
-    local i=0
-    while [[ $i -lt 60 ]]; do
-        local code
-        code=$(curl -s -o /dev/null -w '%{http_code}' "$url" 2>/dev/null)
+    local timeout=${WAIT_TIMEOUT:-180}
+    local start=$SECONDS
+    local deadline=$((SECONDS + timeout))
+    local last_heartbeat=$SECONDS
+    local code=""
+    while (( SECONDS < deadline )); do
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 --connect-timeout 2 "$url" 2>/dev/null)
         if [[ "$code" =~ ^[23] ]] || [[ "$code" == "401" ]]; then
             return 0
         fi
+        if (( SECONDS - last_heartbeat >= 10 )); then
+            info "Still waiting for $name ($((SECONDS - start))s/${timeout}s, last HTTP: ${code:-none})..."
+            last_heartbeat=$SECONDS
+        fi
         sleep 1
-        i=$((i + 1))
     done
-    fail "$name not responding after 60s at $url"
+    fail "$name not responding after ${timeout}s at $url (last HTTP code: ${code:-none})"
     return 1
 }
 

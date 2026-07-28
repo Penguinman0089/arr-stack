@@ -7,7 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 # Cache file to avoid repeated API calls (1 hour TTL)
 _IMAGE_CACHE="/tmp/arr-stack-image-cache.json"
-_CACHE_TTL=3600  # seconds
+_CACHE_TTL=86400  # seconds (24 hours)
 
 # Get cached result for an image, or empty if stale/missing
 _cache_get() {

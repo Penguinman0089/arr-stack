@@ -3,7 +3,7 @@
 #
 # What it does:
 # - Creates an encrypted tunnel from your NAS to Cloudflare's network
-# - Routes plex.yourdomain.com → your Plex through the tunnel
+# - Routes jellyfin.yourdomain.com → your Jellyfin through the tunnel
 # - No ports exposed on your router = more secure
 #
 # You DON'T need this if you're only accessing services locally.
@@ -19,16 +19,20 @@ name: cloudflared
 
 services:
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    image: cloudflare/cloudflared:2026.6.1
     container_name: cloudflared
-    command: tunnel run --token ${CLOUDFLARE_TUNNEL_TOKEN}
-    environment:
-      - TUNNEL_METRICS=0.0.0.0:2000
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command: tunnel --config /home/nonroot/.cloudflared/config.yml run
+    volumes:
+      - ./cloudflared:/home/nonroot/.cloudflared:ro
     networks:
       arr-stack:
         ipv4_address: 172.20.0.12
     healthcheck:
-      test: ["CMD", "cloudflared", "tunnel", "--metrics", "localhost:2000", "info"]
+      test: ["CMD", "cloudflared", "tunnel", "info", "nas-tunnel"]
       interval: 30s
       timeout: 10s
       retries: 3

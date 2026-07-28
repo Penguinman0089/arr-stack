@@ -11,10 +11,11 @@ SSH into your NAS and pull the latest changes:
 
 ```bash
 ssh your-username@nas-ip
-cd /volume1/docker/arr-stack  # or your deployment path
+cd $NAS_STACK_DIR  # or your deployment path
 
 git pull origin main
 docker compose -f docker-compose.arr-stack.yml up -d --force-recreate  # Updates AND restarts - no further steps needed
+# If you also run utilities (beszel, configarr, etc.), add -f docker-compose.utilities.yml after the first -f
 ```
 
 The `--force-recreate` flag ensures containers restart with new config even if the image hasn't changed.
@@ -26,6 +27,7 @@ To pull the latest Docker images and restart with them:
 ```bash
 docker compose -f docker-compose.arr-stack.yml pull
 docker compose -f docker-compose.arr-stack.yml up -d  # Restarts containers with new images - no further steps needed
+# If you also run utilities (beszel, configarr, etc.), add -f docker-compose.utilities.yml to both commands
 ```
 
 > **Ugreen NAS users:** UGOS has a built-in Container Manager that automatically updates images on a schedule. Check **Docker → Settings → Auto Update** to configure. You can skip manual image updates if this is enabled.
@@ -38,6 +40,110 @@ docker compose -f docker-compose.arr-stack.yml up -d  # Restarts containers with
 
 When upgrading across versions, check below for any action required.
 
+### v1.7.9 → v1.7.10
+
+Docs-only fix. No migration needed — just `git pull`.
+
+The clone block in SETUP.md (Ugreen and Synology sections) referenced `$NAS_STACK_DIR` in `chown` before `.env` existed, causing `chown: missing operand`. Fixed by setting the variable at the top of the block so volume2 users only change one line.
+
+### v1.7.8 → v1.7.9
+
+Fixes Pi-hole startup failure on multi-volume NAS setups (#16) and adds `NAS_STACK_DIR` env var.
+
+#### 1. Pull and redeploy
+
+```bash
+cd $NAS_STACK_DIR
+git pull origin main
+docker compose -f docker-compose.arr-stack.yml up -d --force-recreate
+```
+
+#### 2. Migrate Pi-hole DNS config
+
+```bash
+# Move your DNS config into the new dnsmasq.d directory
+mkdir -p pihole/dnsmasq.d
+mv pihole/02-local-dns.conf pihole/dnsmasq.d/02-local-dns.conf
+```
+
+#### 3. Add NAS_STACK_DIR to .env
+
+```bash
+# Add your stack path (adjust volume number if needed)
+echo 'NAS_STACK_DIR=/volume1/docker/arr-stack' >> .env
+```
+
+#### 4. Clean up orphaned volume
+
+```bash
+docker volume rm arr-stack_pihole-etc-dnsmasq 2>/dev/null || true
+```
+
+### Container Security Hardening
+
+All containers now run with hardened Linux defaults:
+- **`cap_drop: ALL`** — All Linux capabilities dropped, re-added only where needed
+- **`no-new-privileges: true`** — Prevents privilege escalation via setuid/setgid binaries
+
+This applies automatically when you pull and redeploy. No action required unless you've customized the compose files to add services or capabilities — in that case, review the [Container Security](ARCHITECTURE.md#container-security) section in the architecture docs.
+
+### v1.7.2 → v1.7.3
+
+Fixes `.lan` DNS resolution inside VPN-tunneled containers, adds a script to fix duplicate Jellyfin entries after enabling TRaSH naming, and improves Seerr configuration.
+
+#### 1. Pull and redeploy
+
+```bash
+cd $NAS_STACK_DIR
+git pull origin main
+docker compose -f docker-compose.arr-stack.yml up -d --force-recreate
+```
+
+#### 2. Fix .lan DNS for VPN-tunneled services
+
+If you use `.lan` domains (local DNS setup), add the IPv6 wildcard to prevent DNS failures inside Gluetun:
+
+```bash
+# Check if already present
+grep 'address=/lan/::' pihole/dnsmasq.d/02-local-dns.conf || echo 'address=/lan/::' >> pihole/dnsmasq.d/02-local-dns.conf
+docker restart pihole
+```
+
+Without this, webhooks and notifications from Sonarr/Radarr to `.lan` hostnames (e.g., `homeassistant.lan`) silently fail. This is the standard dnsmasq approach for IPv4-only local domains — it returns a proper AAAA response (the `::` unspecified address) instead of NXDOMAIN. Alpine/musl-based containers like Gluetun treat AAAA NXDOMAIN as a hard failure, even when the A (IPv4) record resolves fine.
+
+#### 3. Fix duplicate Jellyfin entries (if applicable)
+
+If you enabled TRaSH naming in v1.7 and have duplicate show entries in Jellyfin:
+
+```bash
+# Preview what will be renamed (dry run — review output carefully)
+./scripts/fix-sonarr-folders.sh
+
+# Apply only after reviewing the dry run
+./scripts/fix-sonarr-folders.sh --apply
+```
+
+> **Note:** This script is LLM-generated and human-reviewed. Review [fix-sonarr-folders.sh](../scripts/fix-sonarr-folders.sh) before running — you are responsible for verifying it against your setup.
+
+#### 4. Jellyfin library scan + Seerr sync
+
+After the folder rename above, scan Jellyfin and sync Seerr so everything is consistent:
+
+1. **Jellyfin:** Dashboard → Libraries → Scan All Libraries
+2. **Seerr:** Settings → Jellyfin → toggle **Movies** and **TV** on → Save → click **Sync Libraries** then **Start Scan**
+3. **Seerr quality profiles:** Settings → Services → edit Radarr server → Quality Profile: `UHD Bluray + WEB`. Edit Sonarr server → Quality Profile: `Ultra-HD`
+
+#### 5. Whitelist local networks in qBittorrent
+
+Prevents API scripts and Sonarr/Radarr from getting IP-banned after container restarts:
+
+Tools → Options → Web UI → Authentication:
+- **Bypass authentication for clients on localhost:** ✅
+- **Bypass authentication for clients in whitelisted IP subnets:** ✅
+- **Whitelisted subnets:** `172.20.0.0/24, 10.10.0.0/24, 127.0.0.0/8` (adjust `10.10.0.0/24` to match your LAN subnet)
+
+---
+
 ### v1.7.1 → v1.7.2
 
 Container rename: `jellyseerr` → `seerr` (completes the Seerr rebrand from v1.6.4). App configuration docs restructured into three files — existing `APP-CONFIG.md` anchor links still work.
@@ -45,7 +151,7 @@ Container rename: `jellyseerr` → `seerr` (completes the Seerr rebrand from v1.
 #### 1. Pull and redeploy
 
 ```bash
-cd /volume1/docker/arr-stack
+cd $NAS_STACK_DIR
 git pull origin main
 ```
 
@@ -82,7 +188,7 @@ Infrastructure cleanup and backup consolidation.
 #### 1. Pull and redeploy
 
 ```bash
-cd /volume1/docker/arr-stack
+cd $NAS_STACK_DIR
 git pull origin main
 docker compose -f docker-compose.arr-stack.yml up -d --force-recreate
 docker compose -f docker-compose.traefik.yml up -d --force-recreate
@@ -113,18 +219,18 @@ This release adds TRaSH Guides best practices: hardlinks, naming schemes, downlo
 
 ```bash
 ssh your-username@nas-ip
-mkdir -p /volume1/data/media
-mv /volume1/data/movies /volume1/data/media/movies
-mv /volume1/data/tv /volume1/data/media/tv
-mkdir -p /volume1/data/torrents/{tv,movies}
-mkdir -p /volume1/data/usenet/{incomplete,complete/{tv,movies}}
-chown -R 1000:1000 /volume1/data/media /volume1/data/torrents /volume1/data/usenet
+sudo mkdir -p /volume1/data/media
+sudo mv /volume1/data/movies /volume1/data/media/movies
+sudo mv /volume1/data/tv /volume1/data/media/tv
+sudo mkdir -p /volume1/data/torrents/{tv,movies}
+sudo mkdir -p /volume1/data/usenet/{incomplete,complete/{tv,movies}}
+sudo chown -R 1000:1000 /volume1/data/media /volume1/data/torrents /volume1/data/usenet
 ```
 
 #### 2. Pull and redeploy
 
 ```bash
-cd /volume1/docker/arr-stack
+cd $NAS_STACK_DIR
 git pull origin main
 docker compose -f docker-compose.arr-stack.yml up -d --force-recreate
 ```
@@ -189,17 +295,27 @@ Follow the naming configuration steps in the [App Configuration Guide](APP-CONFI
 - [Sonarr naming](APP-CONFIG.md#44-sonarr-tv-shows) (step 5)
 - [Radarr naming](APP-CONFIG.md#45-radarr-movies) (step 5)
 
-After configuring naming, rename existing files:
-- Radarr: Movies → Select All → Organize
-- Sonarr: Series → Select All → Organize
+After configuring naming, rename existing files and folders:
 
-> **Important: Verify paths after organizing.** The TRaSH naming scheme renames directories on disk (e.g., `Avatar The Way of Water` → `Avatar - The Way of Water`). In rare cases, Radarr's database may not update to match, causing movies to show as "missing" on the Health page.
+1. **Rename series folders** (Sonarr only — the TRaSH series folder format adds `[tvdbid-XXXXX]` which existing folders won't have):
+   ```bash
+   ./scripts/fix-sonarr-folders.sh
+   ```
+   This uses Sonarr's API to rename every series folder to match the configured format. Dry run by default — review the output before passing `--apply`. LLM-generated and human-reviewed; check the script before running.
+
+2. **Rename episode/movie files:**
+   - Radarr: Movies → Select All → Organize
+   - Sonarr: Series → Select All → Organize
+
+> **Warning: Do not rename series folders manually** (e.g., with `mv` on the NAS). Sonarr's database won't know about the change, causing it to lose track of your files. Always use the script above or Sonarr's UI — both keep the database in sync.
+
+> **Radarr path mismatches:** The TRaSH naming scheme may rename movie directories (e.g., `Avatar The Way of Water` → `Avatar - The Way of Water`). In rare cases, Radarr's database may not update to match, causing movies to show as "missing" on the Health page.
 >
 > **Check:** Go to Radarr → System → Health. If you see "missing root folder" or many movies suddenly show as unmonitored/missing, run the path fixer:
 > ```bash
 > ./scripts/fix-radarr-paths.sh
 > ```
-> This compares Radarr's database paths against actual directories on disk and fixes any mismatches. Safe to run multiple times.
+> This compares Radarr's database paths against actual directories on disk and fixes any mismatches. LLM-generated and human-reviewed; check the script before running.
 
 #### 11. Enable NFO metadata (recommended)
 
@@ -271,7 +387,7 @@ rm -f traefik/acme.json
 The old name was confusing - implied Traefik was required for Core setup. The network is used by all services.
 
 ```bash
-cd /volume1/docker/arr-stack && \
+cd $NAS_STACK_DIR && \
 git pull origin main && \
 docker compose -f docker-compose.arr-stack.yml down && \
 docker compose -f docker-compose.utilities.yml down 2>/dev/null; \
@@ -297,7 +413,7 @@ echo "Migration complete"
 Run the full migration as a single chained command to minimize DNS downtime:
 
 ```bash
-cd /volume1/docker/arr-stack && \
+cd $NAS_STACK_DIR && \
 git pull origin main && \
 docker compose -f docker-compose.arr-stack.yml down && \
 docker compose -f docker-compose.utilities.yml down 2>/dev/null; \

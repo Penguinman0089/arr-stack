@@ -18,6 +18,10 @@ set -euo pipefail
 #   - RADARR_API_KEY set in .env
 #   - python3 available
 #
+# ⚠️  This script was generated with LLM assistance and human-reviewed.
+#     Read and understand it before running. Do not execute scripts you
+#     don't understand on your system.
+#
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${SCRIPT_DIR}/../.env"

@@ -17,11 +17,12 @@ volumes:
   sonarr-config:
   prowlarr-config:
   radarr-config:
-  plex-config:
+  jellyfin-config:
+  jellyfin-cache:
   seerr-config:
   bazarr-config:
+  dnscrypt-config:
   pihole-etc-pihole:
-  pihole-etc-dnsmasq:
 
 #########################
 # Networks              #
@@ -51,6 +52,28 @@ x-logging: &default-logging
     max-file: "3"
 
 #########################
+# Security Defaults     #
+#########################
+x-security: &default-security
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+# LinuxServer.io images use s6-overlay which needs CHOWN/SETUID/SETGID/DAC_OVERRIDE
+# to switch users during init. Extend default-security with these caps.
+x-security-lsio: &lsio-security
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+
+#########################
 # Services              #
 #########################
 services:
@@ -59,8 +82,9 @@ services:
   # All services below marked "via VPN" share this network for privacy.
   # ═══════════════════════════════════════════════════════════════════════════
   gluetun:
-    image: qmcgaw/gluetun:latest
+    image: qmcgaw/gluetun:v3.41
     container_name: gluetun
+    <<: *default-security
     depends_on:
       pihole:
         condition: service_healthy  # Wait for Pi-hole DNS before VPN connects
@@ -83,8 +107,8 @@ services:
     ports:
       # Ports for services using network_mode: "service:gluetun"
       # Enables direct local access without Traefik (http://NAS_IP:PORT)
-      - "8989:8989"   # Sonarr
-      - "7878:7878"   # Radarr
+      # NOTE: Sonarr (8989) & Radarr (7878) now run on the arr-stack bridge
+      # (their own static IPs) and publish their own ports — see those services.
       - "9696:9696"   # Prowlarr
       - "8085:8085"   # qBittorrent
       - "8082:8080"   # SABnzbd
@@ -94,8 +118,6 @@ services:
         ipv4_address: 172.20.0.3
       vpn-net:
     restart: always
-    labels:
-      - "com.centurylinklabs.watchtower.enable=false"
     logging: *default-logging
     healthcheck:
       test: ["CMD", "/gluetun-entrypoint", "healthcheck"]
@@ -109,8 +131,9 @@ services:
   # Access: qbit.lan | qbit.yourdomain.com | NAS_IP:8085
   # ═══════════════════════════════════════════════════════════════════════════
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
+    image: lscr.io/linuxserver/qbittorrent:5.1.4
     container_name: qbittorrent
+    <<: *lsio-security
     network_mode: "service:gluetun"
     depends_on:
       gluetun:
@@ -127,13 +150,14 @@ services:
       - ${MEDIA_ROOT}:/data
     labels:
       - deunhealth.restart.on.unhealthy=true
+      - gluetun.dependent=true  # gluetun-recover restarts this if SIGKILLed by a gluetun restart
     restart: always
     logging: *default-logging
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8085/ && wget -q --spider --timeout=5 http://www.google.com"]
       interval: 2m
       timeout: 15s
-      retries: 2
+      retries: 4
       start_period: 60s
 
   # ═══════════════════════════════════════════════════════════════════════════
@@ -141,8 +165,9 @@ services:
   # Access: sabnzbd.lan | sabnzbd.yourdomain.com | NAS_IP:8082
   # ═══════════════════════════════════════════════════════════════════════════
   sabnzbd:
-    image: lscr.io/linuxserver/sabnzbd:latest
+    image: lscr.io/linuxserver/sabnzbd:4.5.5
     container_name: sabnzbd
+    <<: *lsio-security
     network_mode: "service:gluetun"
     depends_on:
       gluetun:
@@ -157,31 +182,38 @@ services:
       - ${MEDIA_ROOT}:/data
     labels:
       - deunhealth.restart.on.unhealthy=true
+      - gluetun.dependent=true  # gluetun-recover restarts this if SIGKILLed by a gluetun restart
     restart: always
     logging: *default-logging
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/ && wget -q --spider --timeout=5 http://www.google.com"]
       interval: 3m
       timeout: 15s
-      retries: 2
+      retries: 4
       start_period: 60s
 
   # ═══════════════════════════════════════════════════════════════════════════
   # SONARR - TV show monitor. Watches for new episodes and sends to download.
   # Access: sonarr.lan | sonarr.yourdomain.com | NAS_IP:8989
+  # Runs on the arr-stack bridge (own IP 172.20.0.10), NOT behind the VPN:
+  # Sonarr only talks to metadata providers (TVDB/TMDB) + internal services,
+  # never to indexers/peers, so it needs no VPN. Staying on the bridge means a
+  # gluetun/VPN reconnect no longer cuts Sonarr off from Jellyseerr/Bazarr.
+  # It reaches the VPN-side download clients via the `gluetun` hostname.
   # ═══════════════════════════════════════════════════════════════════════════
   sonarr:
-    image: lscr.io/linuxserver/sonarr:latest
+    image: lscr.io/linuxserver/sonarr:4.0.17
     container_name: sonarr
-    network_mode: "service:gluetun"
-    depends_on:
-      gluetun:
-        condition: service_healthy
-        restart: true
+    <<: *lsio-security
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
+    ports:
+      - "8989:8989"   # Direct local access (http://NAS_IP:8989)
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.10
     volumes:
       - sonarr-config:/config
       - ${MEDIA_ROOT}:/data
@@ -190,10 +222,10 @@ services:
     restart: always
     logging: *default-logging
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8989/ && wget -q --spider --timeout=5 http://www.google.com"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8989/"]
       interval: 2m
       timeout: 15s
-      retries: 2
+      retries: 3
       start_period: 60s
 
   # ═══════════════════════════════════════════════════════════════════════════
@@ -201,8 +233,9 @@ services:
   # Access: prowlarr.lan | prowlarr.yourdomain.com | NAS_IP:9696
   # ═══════════════════════════════════════════════════════════════════════════
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:latest
+    image: lscr.io/linuxserver/prowlarr:2.3.0
     container_name: prowlarr
+    <<: *lsio-security
     network_mode: "service:gluetun"
     depends_on:
       gluetun:
@@ -216,31 +249,36 @@ services:
       - prowlarr-config:/config
     labels:
       - deunhealth.restart.on.unhealthy=true
+      - gluetun.dependent=true  # gluetun-recover restarts this if SIGKILLed by a gluetun restart
     restart: always
     logging: *default-logging
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9696/ && wget -q --spider --timeout=5 http://www.google.com"]
+      test: ["CMD", "curl", "-sf", "http://localhost:9696/"]
       interval: 2m
       timeout: 15s
-      retries: 2
+      retries: 3
       start_period: 60s
 
   # ═══════════════════════════════════════════════════════════════════════════
   # RADARR - Movie monitor. Watches for new movies and sends to download.
   # Access: radarr.lan | radarr.yourdomain.com | NAS_IP:7878
+  # Runs on the arr-stack bridge (own IP 172.20.0.11), NOT behind the VPN —
+  # same rationale as Sonarr above. Reaches VPN-side download clients via the
+  # `gluetun` hostname.
   # ═══════════════════════════════════════════════════════════════════════════
   radarr:
-    image: lscr.io/linuxserver/radarr:latest
+    image: lscr.io/linuxserver/radarr:6.1.1
     container_name: radarr
-    network_mode: "service:gluetun"
-    depends_on:
-      gluetun:
-        condition: service_healthy
-        restart: true
+    <<: *lsio-security
     environment:
       - PUID=${PUID}
       - PGID=${PGID}
       - TZ=${TZ}
+    ports:
+      - "7878:7878"   # Direct local access (http://NAS_IP:7878)
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.11
     volumes:
       - radarr-config:/config
       - ${MEDIA_ROOT}:/data
@@ -249,52 +287,75 @@ services:
     restart: always
     logging: *default-logging
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:7878/ && wget -q --spider --timeout=5 http://www.google.com"]
+      test: ["CMD", "curl", "-sf", "http://localhost:7878/"]
       interval: 2m
       timeout: 15s
-      retries: 2
+      retries: 3
       start_period: 60s
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # PLEX - Media server. Stream your movies and TV shows like Netflix.
-  # Access: plex.lan | plex.yourdomain.com | NAS_IP:32400/web
+  # JELLYFIN - Media server. Stream your movies and TV shows like Netflix.
+  # Access: jellyfin.lan | jellyfin.yourdomain.com | NAS_IP:8096
   # ═══════════════════════════════════════════════════════════════════════════
-  plex:
-    image: lscr.io/linuxserver/plex:latest
-    container_name: plex
+  jellyfin:
+    image: jellyfin/jellyfin:10.11
+    container_name: jellyfin
+    <<: *default-security
+    cap_add:
+      - CHOWN           # Create config/cache subdirs on first run
+      - DAC_OVERRIDE    # Write to root-owned volume directories
     ports:
-      - "32400:32400"     # Web UI
-      - "1900:1900/udp"   # DLNA
-      # - "5353:5353/udp" # Bonjour/Avahi — disabled, NAS mDNS uses this port
-      - "8324:8324"       # Roku companion
-      - "32410:32410/udp" # GDM network discovery
-      - "32412:32412/udp" # GDM network discovery
-      - "32413:32413/udp" # GDM network discovery
-      - "32414:32414/udp" # GDM network discovery
-      - "32469:32469"     # DLNA
+      - "8096:8096"     # Web UI
+      - "7359:7359/udp" # Client discovery (auto-detect on LAN)
+      - "1900:1900/udp" # DLNA
     environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
       - TZ=${TZ}
-      - VERSION=docker
-      - PLEX_CLAIM=${PLEX_CLAIM}  # Get from https://plex.tv/claim (expires in 4 min)
     # Hardware transcoding (Intel Quick Sync) - remove these 4 lines if no Intel GPU
     devices:
       - /dev/dri:/dev/dri
     group_add:
       - "${RENDER_GROUP_ID:-0}"  # Find ID: getent group render | cut -d: -f3
     volumes:
-      - plex-config:/config
-      - ${MEDIA_ROOT}:/data
+      - jellyfin-config:/config
+      - jellyfin-cache:/cache
+      - ${MEDIA_ROOT}/media:/data/media:ro
     networks:
       arr-stack:
         ipv4_address: 172.20.0.4
     restart: always
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:32400/identity"]
+      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
       interval: 1m
       timeout: 30s
+      retries: 2
+      start_period: 30s
+
+# ═══════════════════════════════════════════════════════════════════════════
+  # DNSCRYPT-PROXY - DNS over HTTPS/DNSCrypt proxy. Encrypts DNS queries.
+  # No web UI. Used internally by Pi-hole at 172.20.0.6:5053
+  # Protocols: DoH (DNS over HTTPS), DNSCrypt, Anonymized DNS
+  # ═══════════════════════════════════════════════════════════════════════════
+  dnscrypt-proxy:
+    image: klutchell/dnscrypt-proxy:2.1.16
+    container_name: dnscrypt-proxy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.6
+    volumes:
+      - dnscrypt-config:/config
+    environment:
+      - TZ=${TZ}
+    restart: always
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/dnsprobe", "google.com", "127.0.0.1:5053"]
+      interval: 30s
+      timeout: 10s
       retries: 2
       start_period: 30s
 
@@ -302,10 +363,14 @@ services:
   # PI-HOLE - DNS server. Enables .lan domains and blocks ads network-wide.
   # Access: pihole.lan/admin | NAS_IP:8081/admin
   # For: Home Pro + Anywhere setups
+  # Configure upstream DNS: Settings → DNS → Custom = 172.20.0.6#5053
   # ═══════════════════════════════════════════════════════════════════════════
   pihole:
-    image: pihole/pihole:latest
+    image: pihole/pihole:2026.06.0
     container_name: pihole
+    depends_on:
+      dnscrypt-proxy:
+        condition: service_healthy
     ports:
       - "${NAS_IP}:53:53/tcp"  # Bind to NAS IP (not 0.0.0.0) to avoid conflict with host dnsmasq on 127.0.0.1:53
       - "${NAS_IP}:53:53/udp"  # NAS_IP MUST be a static IP — DHCP IPs aren't ready at boot, causing exit 128
@@ -317,29 +382,44 @@ services:
       - TZ=${TZ}
       - FTLCONF_webserver_api_password=${PIHOLE_UI_PASS}
       - FTLCONF_dns_listeningMode=all
+      - FTLCONF_misc_etc_dnsmasq_d=true
     volumes:
       - pihole-etc-pihole:/etc/pihole
-      - pihole-etc-dnsmasq:/etc/dnsmasq.d
-      - ./pihole/02-local-dns.conf:/etc/dnsmasq.d/02-local-dns.conf:ro
+      - ./pihole/dnsmasq.d:/etc/dnsmasq.d
+    security_opt:
+      - no-new-privileges:false  # Pi-hole FTL needs setcap to apply capabilities
+    cap_drop:
+      - ALL
     cap_add:
-      - NET_ADMIN
+      - CHOWN           # File ownership during startup
+      - NET_ADMIN       # DNS server binding
+      - NET_RAW         # Raw socket access for DHCP/DNS
+      - SYS_NICE        # Priority scheduling for FTL
+      - SETUID          # Drop privileges after startup
+      - SETGID          # Drop privileges after startup
+      - SETFCAP         # Apply capabilities to FTL binary
+      - DAC_OVERRIDE    # Access config files during startup
     restart: always
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "curl", "-sSf", "http://localhost/admin/", "-o", "/dev/null"]
+      test: ["CMD", "dig", "@127.0.0.1", "-p", "53", "google.com", "+short"]
       interval: 30s
       timeout: 10s
       retries: 2
       start_period: 30s
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # SEERR - Request portal. Users request movies/shows here.
+  # SEERR (formerly Jellyseerr) - Request portal. Users request movies/shows here.
   # Access: seerr.lan | seerr.yourdomain.com | NAS_IP:5055
   # ═══════════════════════════════════════════════════════════════════════════
   seerr:
-    image: ghcr.io/seerr-team/seerr:latest
+    image: ghcr.io/seerr-team/seerr:v3.3.0
     init: true
     container_name: seerr
+    <<: *default-security
+    cap_add:
+      - CHOWN           # Create config subdirs on first run
+      - DAC_OVERRIDE    # Write to root-owned volume directories
     depends_on:
       gluetun:
         condition: service_healthy  # Needs gluetun to reach Sonarr/Radarr
@@ -347,7 +427,9 @@ services:
     ports:
       - "5055:5055"
     environment:
+      - LOG_LEVEL=info
       - TZ=${TZ}
+      - PORT=5055
     networks:
       arr-stack:
         ipv4_address: 172.20.0.8
@@ -367,8 +449,9 @@ services:
   # Access: bazarr.lan | bazarr.yourdomain.com | NAS_IP:6767
   # ═══════════════════════════════════════════════════════════════════════════
   bazarr:
-    image: lscr.io/linuxserver/bazarr:latest
+    image: lscr.io/linuxserver/bazarr:1.5.6
     container_name: bazarr
+    <<: *lsio-security
     depends_on:
       gluetun:
         condition: service_healthy  # Needs gluetun to reach Sonarr/Radarr
@@ -384,7 +467,7 @@ services:
         ipv4_address: 172.20.0.9
     volumes:
       - bazarr-config:/config
-      - ${MEDIA_ROOT}:/data
+      - ${MEDIA_ROOT}/media:/data/media
     restart: always
     logging: *default-logging
     healthcheck:
@@ -400,8 +483,9 @@ services:
   # No web UI. Used internally by Prowlarr at localhost:8191
   # ═══════════════════════════════════════════════════════════════════════════
   flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:latest
+    image: ghcr.io/flaresolverr/flaresolverr:v3.4.6
     container_name: flaresolverr
+    <<: *default-security
     network_mode: "service:gluetun"
     depends_on:
       gluetun:
@@ -411,6 +495,7 @@ services:
       - TZ=${TZ}
     labels:
       - deunhealth.restart.on.unhealthy=true
+      - gluetun.dependent=true  # gluetun-recover restarts this if SIGKILLed by a gluetun restart
     restart: always
     logging: *default-logging
     healthcheck:

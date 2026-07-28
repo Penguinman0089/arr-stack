@@ -2,7 +2,7 @@
 #
 # Automated app configuration for arr-stack
 #
-# Configures qBittorrent, Sonarr, Radarr, Prowlarr, and Bazarr via their APIs.
+# Configures qBittorrent, Sonarr, Radarr, Prowlarr, Bazarr, and Pi-hole via their APIs.
 # Replaces ~30 manual web UI steps with a single command.
 #
 # Usage:
@@ -27,7 +27,6 @@
 #   - Prowlarr: add indexers (user-specific credentials)
 #   - Seerr: initial Plex login + service connections
 #   - SABnzbd: usenet provider credentials + folder config
-#   - Pi-hole: upstream DNS
 
 # ============================================
 # Source helpers
@@ -126,6 +125,17 @@ if [[ -n "$MISSING" ]]; then
     exit 1
 fi
 
+# Gluetun must be healthy — qBittorrent and the *arr services share its network
+# namespace, so if the VPN isn't up, they won't respond on any port. Checking here
+# turns a 4-minute mysterious hang into a clear error.
+GLUETUN_HEALTH=$(docker inspect -f '{{.State.Health.Status}}' gluetun 2>/dev/null || echo unknown)
+if [[ "$GLUETUN_HEALTH" != "healthy" ]]; then
+    echo "ERROR: Gluetun is '$GLUETUN_HEALTH' (need 'healthy')."
+    echo "       qBit and the *arr services share Gluetun's network — they can't respond until the VPN is up."
+    echo "       Wait for it to connect, then re-run. Diagnose: docker logs gluetun --tail 50"
+    exit 1
+fi
+
 # Check if SABnzbd is running (optional)
 SABNZBD_RUNNING=false
 if docker ps --format '{{.Names}}' | grep -q "^sabnzbd$"; then
@@ -178,7 +188,10 @@ if $SABNZBD_RUNNING; then
     fi
 fi
 
-# qBittorrent password (env var preserved from globals, try docker logs as fallback)
+# qBittorrent password: env var → .env file → docker logs temp password
+if [[ -z "$QBIT_PASSWORD" && -f .env ]]; then
+    QBIT_PASSWORD=$(grep '^QBIT_PASSWORD=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)
+fi
 if [[ -z "$QBIT_PASSWORD" ]]; then
     QBIT_PASSWORD=$(docker logs qbittorrent 2>&1 | grep -oP 'temporary password is provided.*: \K\S+' | tail -1 || true)
 fi
@@ -212,7 +225,7 @@ configure_qbittorrent() {
         dry "Authenticate to qBittorrent"
         dry "Create category 'tv' → /data/torrents/tv"
         dry "Create category 'movies' → /data/torrents/movies"
-        dry "Set preferences: auto TMM, disable UPnP, encryption"
+        dry "Set preferences: auto TMM, disable UPnP, encryption, stall timeout, concurrent limits"
         return
     fi
 
@@ -252,17 +265,23 @@ if p.get('upnp', True): sys.exit(1)
 if not p.get('limit_utp_rate', False): sys.exit(1)
 if not p.get('limit_lan_peers', False): sys.exit(1)
 if p.get('encryption', 0) != 1: sys.exit(1)
+if not p.get('max_inactive_seeding_time_enabled', False): sys.exit(1)
+if p.get('max_inactive_seeding_time', -1) != 30: sys.exit(1)
+if p.get('max_ratio_act', -1) != 0: sys.exit(1)
+if p.get('max_active_downloads', -1) != 5: sys.exit(1)
+if p.get('max_active_torrents', -1) != 10: sys.exit(1)
+if p.get('max_active_uploads', -1) != 5: sys.exit(1)
 "; then
         skip "qBittorrent: preferences"
     else
-        local prefs='{"auto_tmm_enabled":true,"upnp":false,"limit_utp_rate":true,"limit_lan_peers":true,"encryption":1}'
+        local prefs='{"auto_tmm_enabled":true,"upnp":false,"limit_utp_rate":true,"limit_lan_peers":true,"encryption":1,"max_inactive_seeding_time_enabled":true,"max_inactive_seeding_time":30,"max_ratio_act":0,"max_active_downloads":5,"max_active_torrents":10,"max_active_uploads":5}'
         http_code=$(curl -s -o /dev/null -w '%{http_code}' \
             -b "$QBIT_COOKIE" \
             --data-urlencode "json=${prefs}" \
             "${QBIT_URL}/api/v2/app/setPreferences")
 
         if [[ "$http_code" == "200" ]]; then
-            ok "qBittorrent: set preferences (auto TMM, UPnP off, encryption)"
+            ok "qBittorrent: set preferences (auto TMM, UPnP off, encryption, stall timeout, concurrent limits)"
         else
             fail "qBittorrent: set preferences (HTTP $http_code)"
         fi
@@ -475,6 +494,36 @@ sys.exit(0 if 'remove_tags' in mods and 'OCR_fixes' in mods else 1)"; then
 }
 
 # ============================================
+# 5. Pi-hole
+# ============================================
+
+configure_pihole() {
+    log "Configuring Pi-hole..."
+
+    if $DRY_RUN; then
+        dry "Set Pi-hole upstream DNS to dnscrypt-proxy (172.20.0.6#5053)"
+        return
+    fi
+
+    # Check current upstream DNS configuration
+    local current_dns
+    current_dns=$(docker exec pihole pihole-FTL --config dns.upstreams 2>/dev/null || true)
+
+    if [[ "$current_dns" == *"172.20.0.6#5053"* ]]; then
+        skip "Pi-hole: upstream DNS (already using dnscrypt-proxy)"
+    else
+        # Set dnscrypt-proxy as upstream DNS using FTL config
+        if docker exec pihole pihole-FTL --config dns.upstreams '["172.20.0.6#5053"]' >/dev/null 2>&1; then
+            ok "Pi-hole: set upstream DNS to dnscrypt-proxy (172.20.0.6#5053)"
+            # Restart container to apply — pihole restartdns fails with cap_drop: ALL
+            docker restart pihole >/dev/null 2>&1
+        else
+            fail "Pi-hole: set upstream DNS"
+        fi
+    fi
+}
+
+# ============================================
 # Run all
 # ============================================
 
@@ -489,6 +538,8 @@ echo ""
 configure_prowlarr
 echo ""
 configure_bazarr
+echo ""
+configure_pihole
 
 # ============================================
 # Summary
@@ -512,9 +563,6 @@ echo "  3. Prowlarr: add indexers (torrent/Usenet)"
 echo "  4. Seerr: initial setup + Plex login"
 if $SABNZBD_RUNNING; then
     echo "  5. SABnzbd: usenet provider credentials"
-    echo "  6. Pi-hole: upstream DNS"
-else
-    echo "  5. Pi-hole: upstream DNS"
 fi
 
 # Cleanup

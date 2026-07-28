@@ -93,7 +93,8 @@ test.describe('UI screenshots', () => {
     await page.fill('input[name="username"], input[id="username"]', username!);
     await page.fill('input[name="password"], input[id="password"]', password!);
     await page.click('button[type="submit"]');
-    await page.waitForLoadState('networkidle');
+    await page.waitForURL(/.*(?<!\/login)$/, { timeout: 15000 });
+    await page.waitForLoadState('domcontentloaded');
 
     expect(page.url()).not.toContain('login');
     await page.screenshot({ path: screenshotPath('prowlarr'), fullPage: true });
@@ -173,7 +174,7 @@ test.describe('UI screenshots', () => {
     }
 
     await page.goto(url('seerr', '/'));
-    await page.waitForLoadState('networkidle');
+    await page.waitForLoadState('domcontentloaded');
     await page.waitForTimeout(2_000);
 
     expect(page.url()).not.toContain('login');

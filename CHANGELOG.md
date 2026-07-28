@@ -2,6 +2,236 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.23] - 2026-06-27
+
+### Changed
+- **Sonarr and Radarr moved off the VPN onto the `arr-stack` bridge** (static IPs `172.20.0.10` / `172.20.0.11`), dropping `network_mode: service:gluetun`. They only ever contact metadata providers (TVDB/TMDB) and internal services — never indexers or peers — so they gain nothing from the VPN, and sharing gluetun's namespace meant every VPN reconnect briefly cut them off from Jellyseerr/Bazarr. qBittorrent, SABnzbd, Prowlarr and FlareSolverr **stay** behind gluetun (that is the traffic the VPN exists to hide). Gluetun no longer publishes 8989/7878; Sonarr/Radarr publish their own ports. Traefik routes updated to the new IPs.
+
+### Fixed
+- **Jellyseerr requests no longer fail when the VPN reconnects.** This is the structural fix for the class of problem patched defensively in 1.7.21 (gluetun namespace churn leaving Jellyseerr unable to reach Radarr/Sonarr, requests stuck on *Failed*, `Unable to get queue` errors). With Sonarr/Radarr on the bridge, the Jellyseerr/Bazarr → Sonarr/Radarr path is immune to VPN flaps. Verified end-to-end on the NAS: download-client / app-sync / Bazarr / Jellyseerr connections all test green, `Unable to get queue` errors dropped to 0, qBittorrent + Prowlarr still exit via the VPN IP (Sonarr via the home IP, as intended), and all 14 E2E tests pass.
+- **Uptime Kuma monitors** for Sonarr/Radarr were still pinging `gluetun:8989`/`7878` (dead after the move) and false-alarming — repointed to `sonarr:8989` / `radarr:7878`, both back to `200 - OK`.
+
+### Documentation
+- **`docs/MIGRATION-arr-off-vpn.md`**: full runbook (backups, recreate, the NAS-side app-config changes, verification incl. a VPN-still-protects check, rollback).
+- **Swept all docs to the new topology**: `REFERENCE.md` (Service Connection Guide, IP table, startup order), `APP-CONFIG.md` (download-client hosts → `gluetun`, Prowlarr apps → bridge IPs, Seerr/Bazarr → `sonarr`/`radarr`, SAB `host_whitelist` note), `ARCHITECTURE.md` (data-flow + VPN diagrams, connection examples, network table), `UTILITIES.md` (monitor URLs), `TROUBLESHOOTING.md` (stale-namespace section now scoped to qBit/SAB/Prowlarr/FlareSolverr), `MAINTENANCE.md`. Two boundary gotchas documented: VPN-side services reach bridge services by **IP** (the VPN namespace's DNS is Pi-hole, which can't resolve container names), and SABnzbd's `host_whitelist` must include `gluetun`.
+
+## [1.7.22] - 2026-06-19
+
+### Changed
+- **Cloudflared** 2026.6.0 → 2026.6.1. Verified on the live tunnel (container healthy, Jellyfin returned HTTP 302 through the tunnel via HTTPS).
+- **Pi-hole** 2026.05.0 → 2026.06.0. Config volume backed up before the bump; verified after recreate (FTL healthy in ~24s, `.lan` domains and external DNS both resolving).
+
+## [1.7.21] - 2026-06-19
+
+### Fixed
+- **`gluetun-recover` now revives *running* zombies, not just `Exited` containers**: when gluetun restarts to rebuild its tunnel, its shared network namespace is destroyed and dependents (`network_mode: service:gluetun`) lose networking. Some are SIGKILLed and stay `Exited` (already handled); others keep **running** on the dead namespace — reachable on `localhost`, invisible to the rest of the stack, and still showing **Up (healthy)** because their healthcheck is localhost-based. The old exited-only `recover()` skipped these, which is how Jellyseerr lost Radarr/Sonarr (requests stuck on *Failed*) and Prowlarr lost FlareSolverr while every container looked healthy. `recover()` now also restarts any `gluetun.dependent=true` container whose `StartedAt` predates gluetun's current start (whole-second RFC3339 comparison, busybox-safe). Verified end-to-end on the NAS: a `docker restart gluetun` left all 6 dependents as running zombies, and the watcher auto-restarted every one once gluetun went healthy — no manual intervention.
+
+### Documentation
+- **TROUBLESHOOTING.md "Apps Unreachable After a VPN Reconnect (Stale Network Namespace)"**: documents the zombie symptom (Seerr "Unable to connect to Radarr/Sonarr", Failed requests, everything showing Up), why localhost healthchecks mask it, the built-in auto-recovery, and the manual StartedAt check/fix
+
+## [1.7.20] - 2026-06-10
+
+### Changed
+- **Jellyseerr** v3.2.0 → v3.3.0
+
+## [1.7.19] - 2026-06-09
+
+### Changed
+- **Cloudflared** 2026.5.2 → 2026.6.0
+
+## [1.7.18] - 2026-06-06
+
+### Changed
+- **Cloudflared** 2026.5.1 → 2026.5.2
+- **Diun** 4.31.0 → 4.33.0
+- **Tailscale** v1.98.3 → v1.98.4
+
+## [1.7.17] - 2026-06-06
+
+### Added
+- **`gluetun-recover` service**: a lightweight `docker:cli` watcher that revives any VPN-bound container that was SIGKILLed (exit 137) and left `Exited` when gluetun restarts to rebuild its tunnel. Closes a gap deunhealth structurally cannot cover — deunhealth only restarts *running-but-unhealthy* containers, never `Exited` ones, and compose's `depends_on: restart: true` only fires for compose-driven restarts, not gluetun's own `restart: always`. The watcher recovers dead dependents both on its own startup and on each gluetun `health_status: healthy` event. Triggered after qBittorrent silently stayed down for ~8h following a gluetun restart (uptime-kuma alerted but nothing auto-recovered it)
+
+### Changed
+- **Six VPN-bound services** (qBittorrent, SABnzbd, Sonarr, Radarr, Prowlarr, FlareSolverr) now carry a `gluetun.dependent=true` label so `gluetun-recover` can identify and restart them
+
+## [1.7.16] - 2026-05-26
+
+### Changed
+- **Cloudflared** 2026.5.0 → 2026.5.1. Tested against the live tunnel via one-off container swap (precheck PASS on all 5 DNS/UDP/TCP targets, Jellyfin returned 302 via HTTPS, no behaviour change observed)
+
+### Fixed
+- **`configure-apps.sh` timing out on first-boot installs**: `wait_for_service` had a hard 60s deadline, but Sonarr/Radarr first-run DB migrations routinely take 90-120s on NAS hardware. The script would fail every app in sequence on a fresh stack. Default raised to 180s with a `WAIT_TIMEOUT` env override for tuning. Reported on Reddit
+- **Cloudflared `config.yml` silently failing to write**: REMOTE-ACCESS.md instructed `sudo chown -R 65532:65532 cloudflared/` at step 1 (correctly — the container needs to write `cert.pem` during `tunnel login`), then `cat > cloudflared/config.yml` at step 3 — which now silently fails because the shell user no longer owns the directory. Step 3 file ops switched to `sudo tee` + `sudo chown`, with a one-line note explaining why. Reported on Reddit
+- **`mv cloudflared/*.json cloudflared/credentials.json` erroring on re-run**: if a user re-ran setup, the glob matched only the already-renamed `credentials.json` and `mv` refused to move a file to itself. Replaced with `find ... -not -name credentials.json` which is idempotent. Reported on Reddit
+
+### Added
+- **REMOTE-ACCESS.md Traefik prerequisite callout**: the Cloudflare tunnel forwards to `http://traefik:80`; without Traefik running the tunnel comes up clean and then errors with 1016 / `no such host`, which is hard to diagnose. Added an upfront prereq pointing to LOCAL-DNS.md (or a single deploy command). Reported on Reddit
+- **REMOTE-ACCESS.md note on apex DNS conflicts**: Cloudflare auto-creates an A record for the apex when a domain is added, so `tunnel route dns ... yourdomain.com` errors with "already exists" on the apex command (the wildcard succeeds). Added a one-liner pointing users to delete the existing record in the Cloudflare dashboard
+- **TROUBLESHOOTING.md "Gluetun: Harmless Log Noise on Startup"**: documents the two cosmetic gluetun warnings (`/tmp/gluetun/ip permission denied` and the ICMP healthcheck falling back to DNS) that users keep reading as fatal. Includes a `wget ifconfig.me` test to confirm the VPN is actually working. Reported on Reddit
+- **SETUP.md docker group tip**: kept the existing `sudo` recommendation but added the `usermod -aG docker $USER` one-liner so users who want to skip the `sudo` prefix know how
+
+### Documentation
+- **REFERENCE.md FlareSolverr row**: now notes the service is inactive until added as an Indexer Proxy in Prowlarr (with a link to the APP-CONFIG step). New users had FlareSolverr running but no Prowlarr proxy configured, then assumed it was broken when no traffic appeared in its logs
+
+---
+
+## [1.7.15] - 2026-05-25
+
+### Changed
+- **dnscrypt-proxy** 2.1.14 → 2.1.16
+
+### Added
+- **Tailscale subnet router** (optional): new `docker-compose.tailscale.yml` and [docs/TAILSCALE.md](docs/TAILSCALE.md) for reaching the whole LAN (Pi-hole, `*.lan` domains, admin UIs, Home Assistant) from anywhere — including hotel WiFi and CGNAT networks where IPv4 inbound is unavailable. Pinned to `tailscale/tailscale:v1.98.3`, runs as a host-network container with `NET_ADMIN`, advertises `LAN_SUBNET` from `.env`. Complementary to Cloudflared, not a replacement
+
+### Documentation
+- **`+ remote access` reframed as one tier with two combinable paths** — Cloudflared (public HTTPS for Jellyfin/Seerr) and Tailscale (private mesh VPN for the whole LAN). Updated across SETUP, README, REMOTE-ACCESS, TAILSCALE, REFERENCE, ARCHITECTURE. The decision point lives in SETUP.md's "+ remote access" section; per-path docs are scoped to that path with a brief cross-link to the other
+- **REMOTE-ACCESS.md**: now scoped to the Cloudflared path, with a one-line callout pointing to TAILSCALE.md for the alternate path
+
+---
+
+## [1.7.14] - 2026-05-23
+
+### Changed
+- **Pi-hole** 2026.04.1 → 2026.05.0
+- **Cloudflared** 2026.3.0 → 2026.5.0
+- **Traefik** v3.6 → v3.7
+
+### Fixed
+- **`configure-apps.sh` hanging at "Configuring qBittorrent..."**: `wait_for_service` polled with `curl` and no `--max-time`, so a single hung connection (qBit accepting TCP but not responding during Gluetun init) silently extended the advertised 60s timeout into many minutes. Now bounded per-call, bounded wall-clock, with a 10s heartbeat showing the last HTTP code so users know it's working. Reported on Reddit
+- **Cloudflared `No file cert.pem` on tunnel create**: the `sudo chown -R 65532:65532 cloudflared/` step (required on UGOS/Synology where NAS ACLs override POSIX perms) was buried as a "troubleshooting note" after the `tunnel login` command. Most users hit this on first run before seeing the note. Promoted to a required pre-step. Dropped the `chmod 777` line — doesn't actually work under ACLs. Reported on Reddit
+
+### Added
+- **`configure-apps.sh` Gluetun pre-flight check**: bail fast with a clear message if Gluetun isn't `healthy`. qBittorrent and the *arr services share Gluetun's network namespace, so without it they can't respond — without this check, the user just sees a long hang
+- **TROUBLESHOOTING.md "Seerr: /app/config volume mount was not configured properly"**: documents the Seerr first-run startup check (stricter than Jellyseerr was), usually caused by a half-initialised `seerr-config` volume from an interrupted start. Fix is wipe + recreate. Reported on Reddit
+
+---
+
+## [1.7.13] - 2026-05-02
+
+### Changed
+- **Sonarr** 4.0.16 → 4.0.17 (patch)
+- **Radarr** 6.0.4 → 6.1.1 (minor)
+
+---
+
+## [1.7.12] - 2026-04-28
+
+### Changed
+- **Pi-hole** 2026.04.0 → 2026.04.1 (Core 6.4.1 → 6.4.2, FTL 6.6 → 6.6.1)
+
+### Documentation
+- **TROUBLESHOOTING.md**: Added "Pi-hole: Gravity Update Fails With Empty Status" — the empty `Status: ()` symptom comes from a root-owned file in `/etc/pihole/listsCache/` (a relic from older Pi-hole images). Includes diagnose and `chown` fix
+- **Routine `up -d` examples** (REFERENCE.md, UPGRADING.md): Note that users who also run utilities (beszel, configarr, duc, diun, deunhealth, uptime-kuma) should add `-f docker-compose.utilities.yml` to suppress the "orphan containers" warning. Core-only users can ignore. MAINTENANCE.md already has a dedicated "All Stacks" section for the multi-file invocation
+
+---
+
+## [1.7.11] - 2026-04-25
+
+### Documentation
+- **SETUP.md Step 2.1**: Added a short "How to edit `.env`" note covering `nano` for SSH users and GUI options (NAS web file manager, VS Code Remote-SSH). Beginners were trying to paste `.env` line snippets straight into the shell because the docs never said which editor to use. Reported on Reddit
+
+---
+
+## [1.7.10] - 2026-04-21
+
+### Fixed
+- **SETUP.md clone block**: The Ugreen and Synology sections referenced `$NAS_STACK_DIR` in `chown` before `.env` existed, causing `chown: missing operand`. The variable is now set as a shell var at the top of the clone block, so volume2 users change one line and the whole block works. Reported by u/OatStraw on Reddit
+
+---
+
+## [1.7.9] - 2026-04-19
+
+### Fixed
+- **Pi-hole startup failure on multi-volume NAS setups** (#16): Introduced `NAS_STACK_DIR` env var so Pi-hole's config bind-mount resolves correctly when the stack lives on a non-default volume (e.g. `/volume2/docker/arr-stack`). Pi-hole's `dnsmasq.d` config moved under `pihole/dnsmasq.d/` — see UPGRADING.md for the migration command
+
+### Changed
+- **Pi-hole** 2026.02.0 → 2026.04.0
+
+### Documentation
+- **SETUP.md**: Added multi-volume NAS note explaining `NAS_STACK_DIR` vs `MEDIA_ROOT` split (stack on one volume, media library on another)
+- **README**: Clarified LLM attribution; mention Opus 4.7
+
+---
+
+## [1.7.8] - 2026-04-17
+
+### Added
+- **dnscrypt-proxy service** (#15, from @gncnpk): Encrypts DNS queries between Pi-hole and upstream resolvers. Runs internally on the arr-stack network with no host port exposure. Configure-apps.sh now sets up Pi-hole to use it
+
+### Changed
+- **Seerr** v3.1.0 → v3.2.0
+
+### Fixed
+- **Queue-cleanup cron silently failing**: Log path moved from `/var/log/` (which `mooseadmin` can't write to on UGOS) to `$NAS_STACK_DIR/logs/`. Also added detection for `importBlocked` and `importPending` items (already-imported packs, executable files, quality mismatches) that were accumulating unhandled
+- **Pi-hole config**: Removed unsupported `-q` flag from `pihole-FTL --config` and switched from `pihole restartdns` (which fails under `cap_drop: ALL`) to `docker restart pihole`
+
+### Security
+- **dnscrypt-proxy hardening**: Pinned image to 2.1.14 (from `:latest`), removed unnecessary `NET_ADMIN`/`NET_RAW` caps (port 5053 is unprivileged), set `no-new-privileges: true`
+
+### Documentation
+- **MAINTENANCE.md** and HA webhook: Updated queue-cleanup log path references
+
+---
+
+## [1.7.7] - 2026-03-31
+
+### Fixed
+- **`cap_drop: ALL` breaking non-LSIO services on fresh install**: v1.7.6 dropped all Linux capabilities by default, but several non-LSIO services (Pi-hole, etc.) need `CHOWN` + `DAC_OVERRIDE` to write to volume directories. Added them back via targeted `cap_add`. Existing installs were unaffected — this only bit fresh deploys
+
+### Added
+- **Pi-hole DNS in Uptime Kuma**: Uptime Kuma now uses Pi-hole as its DNS resolver so `.lan` monitor URLs resolve correctly
+
+### Documentation
+- **ARCHITECTURE.md**: Corrected security docs — x-security services aren't "fully locked down"; volume-writing services need `CHOWN` + `DAC_OVERRIDE`
+
+---
+
+## [1.7.6] - 2026-03-28
+
+### Security
+- **Container security hardening**: Every container across all four compose files now runs with `cap_drop: ALL` and `no-new-privileges: true`. LSIO images get `CHOWN`/`SETUID`/`SETGID`/`DAC_OVERRIDE` back for s6-overlay init. Gluetun keeps `NET_ADMIN` for VPN tunnels. Pi-hole gets targeted caps for the FTL binary. See [Container Security](docs/ARCHITECTURE.md#container-security)
+
+### Added
+- **Weekly queue cleanup script** (`scripts/queue-cleanup.sh`): Identifies stuck Sonarr/Radarr queue items (stalled torrents, metadata-stuck, failed imports, 0% for 24h+), removes them with blocklist, and triggers fresh searches. Dry-run by default; suggested cron: Thu 2am
+- **Renovate config**: Automated Docker image update PRs, grouped by category (LSIO, infrastructure, utilities), scheduled weekly Monday mornings. Auto-merges LSIO patch updates
+
+---
+
+## [1.7.5] - 2026-03-18
+
+### Changed
+- **Bazarr** 1.5.5 → 1.5.6
+- **Cloudflared** 2026.2.0 → 2026.3.0
+- **Configarr** 1.23.0 → 1.24.0
+- **Pre-commit image cache TTL** increased from 1 hour to 24 hours to reduce registry rate-limiting during repeated commits
+
+### Documentation
+- **Plex setup guide**: Rewritten with full YAML example, option to run Plex alongside Jellyfin (not just replace), anchor link (`SETUP.md#plex`), and reference to old Plex compose in git history. Clarified that Seerr supports Plex natively
+
+---
+
+## [1.7.3] - 2026-03-06
+
+### Added
+- **`fix-sonarr-folders.sh` script**: Renames Sonarr series folders via the API so that Sonarr's database stays in sync (renaming folders directly on disk breaks tracking). LLM-generated and human-reviewed — check the script before running
+- **qBittorrent stall timeout**: Pauses torrents after 30 minutes of inactivity so Sonarr/Radarr can detect them and automatically search for alternatives
+- **Pi-hole AAAA DNS fix**: `address=/lan/::` entry in dnsmasq config returns `::` for AAAA queries on `.lan` domains instead of NXDOMAIN. Fixes DNS failures in Alpine/musl containers (e.g., Gluetun) that treat AAAA NXDOMAIN as a hard failure
+
+### Removed
+- **qbit-scheduler**: Removed the cron-based torrent scheduler (paused all torrents overnight). Replaced by qBittorrent's built-in stall timeout (30-min inactivity → pause) which is more targeted — only pauses stalled torrents instead of everything
+
+### Fixed
+- **Seerr library sync and quality defaults**: Documented that Jellyfin libraries must be enabled in Seerr settings and synced, otherwise movies/shows stay stuck at "Requested". Default quality profiles set to `UHD Bluray + WEB` (Radarr) and `Ultra-HD` (Sonarr)
+- **qBittorrent auth subnet whitelist**: Documented local network whitelist (`172.20.0.0/24, 10.10.0.0/24, 127.0.0.0/8`) to prevent IP bans from Sonarr/Radarr reconnections and API scripts after container restarts
+
+### Documentation
+- **UPGRADING.md**: v1.7.3 migration steps for Seerr library sync, quality profile defaults, and qBit auth whitelist
+- **APP-CONFIG docs**: Seerr quality profiles and library sync steps added to both script-assisted and manual guides
+- **APP-CONFIG-ADVANCED.md**: qBittorrent auth bypass section with subnet whitelist instructions
+- **SETUP.md**: Clarified script-assisted vs manual setup trade-offs, security review note for configure-apps.sh
+
+---
+
 ## [1.7.2] - 2026-03-01
 
 ### Changed

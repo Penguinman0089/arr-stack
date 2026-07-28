@@ -5,12 +5,12 @@
 Your stack is running! Now configure each app to work together.
 
 **Configuration order:** Services depend on each other, so configure them in the order below:
-1. Plex (media server — needed before Seerr)
+1. Jellyfin (media server — needed before Seerr)
 2. qBittorrent (downloads — needed before Sonarr/Radarr)
 3. SABnzbd (optional Usenet — needed before Sonarr/Radarr if using)
 4. Sonarr & Radarr (library managers — need qBit/SABnzbd configured first)
 5. Prowlarr (indexers — needs Sonarr/Radarr configured first)
-6. Seerr (requests — needs Plex + Sonarr/Radarr configured first)
+6. Seerr (requests — needs Jellyfin + Sonarr/Radarr configured first)
 7. Bazarr (subtitles — needs Sonarr/Radarr configured first)
 8. Pi-hole (DNS — independent, do anytime)
 
@@ -30,17 +30,17 @@ See **[Quick Reference → Service Connection Guide](REFERENCE.md#service-connec
 
 Work through these sections top to bottom.
 
-## 4.1 Plex (Media Server)
+## 4.1 Jellyfin (Media Server)
 
 Streams your media library to any device.
 
-1. **Access:** `http://NAS_IP:32400/web`
-2. **Sign in with your Plex account** (or create one at [plex.tv](https://plex.tv))
+1. **Access:** `http://NAS_IP:8096`
+2. **Create admin account** when prompted (setup wizard)
 3. **Add Libraries:**
-   - Movies: Type "Movies", Folder `/data/media/movies`
-   - TV Shows: Type "TV Shows", Folder `/data/media/tv`
+   - Movies: Content type "Movies", Folder `/data/media/movies`
+   - TV Shows: Content type "Shows", Folder `/data/media/tv`
 
-> **Optional:** [Enable hardware transcoding](APP-CONFIG-ADVANCED.md#hardware-transcoding-intel-quick-sync) for GPU-accelerated playback (recommended for Ugreen NAS, requires Plex Pass).
+> **Optional:** [Enable hardware transcoding](APP-CONFIG-ADVANCED.md#hardware-transcoding-intel-quick-sync) for GPU-accelerated playback (recommended for Ugreen NAS). Also see [Kodi for Fire TV](APP-CONFIG-ADVANCED.md#kodi-for-fire-tv-dolby-vision--truehd-atmos) and [RAID5 streaming tuning](APP-CONFIG-ADVANCED.md#raid5-streaming-tuning).
 
 ## 4.2 qBittorrent (Torrent Downloads)
 
@@ -74,6 +74,9 @@ Receives download requests from Sonarr and Radarr and downloads files via torren
    - `movies` → Save path: `/data/torrents/movies`
 
    > **Why categories matter:** Sonarr/Radarr tell qBittorrent which category to use when requesting downloads. qBittorrent puts files in the category's save path. After download completes, Sonarr/Radarr create hardlinks from `/data/torrents/tv` or `/data/torrents/movies` to your library (`/data/media/tv` or `/data/media/movies`). If categories don't match, downloads won't be found.
+
+7. **Set stall timeout:** Tools → Options → BitTorrent → Seeding Limits → **When inactive for:** `30` minutes → **Pause torrent**. This lets Sonarr/Radarr detect stalled downloads and automatically search for alternatives.
+8. **Set concurrent limits:** Tools → Options → Speed → Queue → **Maximum active downloads:** `5`, **Maximum active uploads:** `5`, **Maximum active torrents:** `10`. Prevents overloading the NAS when many torrents are queued.
 
 > **Optional:** [qBittorrent tuning](APP-CONFIG-ADVANCED.md#qbittorrent-tuning-trash-recommended) (TRaSH recommended settings for encryption, UPnP, VueTorrent mobile UI).
 
@@ -123,25 +126,26 @@ Searches for TV shows, sends download links to qBittorrent/SABnzbd, and organize
 1. **Access:** `http://NAS_IP:8989`
 2. **Create admin account** when prompted
 3. **Add Root Folder:** Settings → Media Management → `/data/media/tv`
-3. **Add Download Client(s):** Settings → Download Clients
+4. **Add Download Client(s):** Settings → Download Clients
 
    **qBittorrent (torrents):**
    - Add → qBittorrent
-   - Host: `localhost` (Sonarr & qBittorrent share gluetun's network)
+   - Host: `gluetun` (Sonarr is on the bridge; qBittorrent is behind the VPN)
    - Port: `8085`
    - Category: `tv`
 
    **SABnzbd (Usenet):** *(if configured)*
    - Add → SABnzbd
-   - Host: `localhost` (SABnzbd also runs via gluetun)
+   - Host: `gluetun` (SABnzbd is behind the VPN)
    - Port: `8080`
+   - **Note:** SABnzbd's `host_whitelist` must include `gluetun` or it returns `403 Forbidden`.
    - API Key: (from SABnzbd Config → General)
    - Category: `tv`
 
-4. **Enable NFO metadata:** Settings → Metadata → Kodi (XBMC) / Emby → **Enable** (see [why this matters](#nfo-metadata))
+5. **Enable NFO metadata:** Settings → Metadata → Kodi (XBMC) / Emby → **Enable** (see [why this matters](#nfo-metadata))
    - Series Metadata: ✅
    - Episode Metadata: ✅
-   - All image options: ❌ (Plex handles its own artwork)
+   - All image options: ❌ (Jellyfin handles its own artwork)
 
 5. **Configure naming (TRaSH recommended):** Settings → Media Management → Episode Naming
    - **Rename Episodes:** ✅
@@ -154,7 +158,7 @@ Searches for TV shows, sends download links to qBittorrent/SABnzbd, and organize
 
    > These follow [TRaSH Guides Sonarr naming](https://trash-guides.info/Sonarr/Sonarr-recommended-naming-scheme/). After saving, rename existing files: Series → Select All → Organize.
 
-6. **Block ISOs:** Some indexers serve disc images that Plex can't play.
+7. **Block ISOs:** Some indexers serve disc images that Jellyfin can't play.
    - Settings → Custom Formats → + → Name: `Reject ISO`
    - Add condition: Release Title, value `\.iso$`, check **Regex**
    - Settings → Profiles → your quality profile → set `Reject ISO` to `-10000`
@@ -166,11 +170,11 @@ Searches for movies, sends download links to qBittorrent/SABnzbd, and organizes 
 1. **Access:** `http://NAS_IP:7878`
 2. **Create admin account** when prompted
 3. **Add Root Folder:** Settings → Media Management → `/data/media/movies`
-3. **Add Download Client(s):** Settings → Download Clients
+4. **Add Download Client(s):** Settings → Download Clients
 
    **qBittorrent (torrents):**
    - Add → qBittorrent
-   - Host: `localhost` (Radarr & qBittorrent share gluetun's network)
+   - Host: `gluetun` (Radarr is on the bridge; qBittorrent is behind the VPN)
    - Port: `8085`
    - Category: `movies`
 
@@ -181,18 +185,18 @@ Searches for movies, sends download links to qBittorrent/SABnzbd, and organizes 
    - API Key: (from SABnzbd Config → General)
    - Category: `movies`
 
-4. **Enable NFO metadata:** Settings → Metadata → Kodi (XBMC) / Emby → **Enable** (see [why this matters](#nfo-metadata))
+5. **Enable NFO metadata:** Settings → Metadata → Kodi (XBMC) / Emby → **Enable** (see [why this matters](#nfo-metadata))
    - Movie Metadata: ✅
-   - Movie Images: ❌ (Plex handles its own artwork)
+   - Movie Images: ❌ (Jellyfin handles its own artwork)
 
-5. **Configure naming (TRaSH recommended):** Settings → Media Management → Movie Naming
+6. **Configure naming (TRaSH recommended):** Settings → Media Management → Movie Naming
    - **Rename Movies:** ✅
    - **Standard Movie Format:** `{Movie CleanTitle} {(Release Year)} {imdb-{ImdbId}} - {Edition Tags }{[Custom Formats]}{[Quality Full]}{[MediaInfo AudioCodec}{ MediaInfo AudioChannels]}{[MediaInfo VideoDynamicRangeType]}{[Mediainfo VideoCodec]}{-Release Group}`
    - **Movie Folder Format:** `{Movie CleanTitle} ({Release Year})`
 
    > These follow [TRaSH Guides Radarr naming](https://trash-guides.info/Radarr/Radarr-recommended-naming-scheme/). After saving, rename existing files: Movies → Select All → Organize.
 
-6. **Block ISOs:** Some indexers serve disc images that Plex can't play.
+7. **Block ISOs:** Some indexers serve disc images that Jellyfin can't play.
    - Settings → Custom Formats → + → Name: `Reject ISO`
    - Add condition: Release Title, value `\.iso$`, check **Regex**
    - Settings → Profiles → your quality profile → set `Reject ISO` to `-10000`
@@ -214,9 +218,9 @@ This gives Usenet a 30-minute head start before considering torrents.
 
 > **Applies to both Sonarr (step 4 above) and Radarr (step 4 above).**
 >
-> **Why this matters:** Without NFO files, Plex identifies media by guessing from the filename. For movies or shows with common titles shared by multiple entries on TMDB, it can match the wrong one. When the TMDB IDs don't agree between Radarr/Sonarr and Plex, Seerr can't link them — so requests stay stuck at "Requested" even though the file is downloaded and playable.
+> **Why this matters:** Without NFO files, Jellyfin identifies media by guessing from the filename. For movies or shows with common titles shared by multiple entries on TMDB, it can match the wrong one. When the TMDB IDs don't agree between Radarr/Sonarr and Jellyfin, Seerr can't link them — so requests stay stuck at "Requested" even though the file is downloaded and playable.
 >
-> Enabling NFO metadata makes Radarr/Sonarr write a small `.nfo` file alongside each media file containing the correct TMDB/IMDB/TVDB IDs. Plex reads these instead of guessing. This eliminates the entire class of metadata mismatch bugs.
+> Enabling NFO metadata makes Radarr/Sonarr write a small `.nfo` file alongside each media file containing the correct TMDB/IMDB/TVDB IDs. Jellyfin reads these instead of guessing. This eliminates the entire class of metadata mismatch bugs.
 >
 > **After enabling:** Run a full library refresh to write NFOs for existing media. In Radarr: Movies → Update All. In Sonarr: Series → Update All. New downloads will get NFOs automatically.
 
@@ -227,7 +231,7 @@ Manages torrent/Usenet indexers and syncs them to Sonarr/Radarr.
 1. **Access:** `http://NAS_IP:9696`
 2. **Create admin account** when prompted
 3. **Add Torrent Indexers:** Indexers (left sidebar) → + button → search by name
-3. **If using SABnzbd: Add Usenet Indexer**
+4. **If using SABnzbd: Add Usenet Indexer**
    - **Indexers** (left sidebar, NOT Settings → Indexer Proxies) → + button
    - Search by indexer name (e.g., "NZBGeek", "DrunkenSlug", "NZBFinder")
    - API Key: (from your indexer account → API section)
@@ -244,9 +248,10 @@ Manages torrent/Usenet indexers and syncs them to Sonarr/Radarr.
    - **Note:** FlareSolverr doesn't bypass all Cloudflare protections - some indexers may still fail. If you have issues, [Byparr](https://github.com/ThePhaseless/Byparr) is a drop-in alternative using different browser tech.
 5. **Connect to Sonarr:**
    - Settings → Apps → Add → Sonarr
-   - Sonarr Server: `http://localhost:8989` (they share gluetun's network)
+   - Prowlarr Server: `http://gluetun:9696` (how Sonarr reaches Prowlarr, which is behind the VPN)
+   - Sonarr Server: `http://172.20.0.10:8989` (Prowlarr is inside gluetun's namespace where DNS can't resolve container names — use Sonarr's bridge IP)
    - API Key: (from Sonarr → Settings → General → Security)
-6. **Connect to Radarr:** Same process with `http://localhost:7878`
+6. **Connect to Radarr:** Same process — Radarr Server: `http://172.20.0.11:7878`
 7. **Sync:** Settings → Apps → Sync App Indexers
 
 ## 4.7 Seerr (Request Manager)
@@ -254,20 +259,25 @@ Manages torrent/Usenet indexers and syncs them to Sonarr/Radarr.
 Lets users browse and request movies/TV shows.
 
 1. **Access:** `http://NAS_IP:5055`
-2. **Sign in with Plex:**
-   - Click "Sign in with Plex" and authorize with your Plex account
-3. **Configure Plex:**
-   - Settings → Plex → Hostname: `plex` (internal Docker hostname)
-   - Port: `32400`
+2. **Sign in with Jellyfin:**
+   - Jellyfin URL: `http://jellyfin:8096`
+   - Enter Jellyfin credentials
+3. **Set Jellyfin External URL:** Settings → Jellyfin → **External URL:** `http://jellyfin.lan` (or `http://NAS_IP:8096`) — makes "Play on Jellyfin" links work in your browser
 4. **Configure Services:**
    - Settings → Services → Add Radarr:
-     - **Hostname:** `gluetun` (internal Docker hostname)
+     - **Hostname:** `radarr` (Radarr is on the bridge with its own Docker DNS name)
      - **Port:** `7878`
+     - **Quality Profile:** `UHD Bluray + WEB` (ensures all requests get the best available quality)
      - **External URL:** `http://radarr.lan` (or `http://NAS_IP:7878`) — makes "Open in Radarr" links work in your browser
    - Settings → Services → Add Sonarr:
-     - **Hostname:** `gluetun`
+     - **Hostname:** `sonarr`
      - **Port:** `8989`
+     - **Quality Profile:** `Ultra-HD`
      - **External URL:** `http://sonarr.lan` (or `http://NAS_IP:8989`)
+5. **Enable Jellyfin Libraries:** Settings → Jellyfin → toggle **Movies** and **TV** on → Save
+6. **Sync Libraries:** On the same page, click **Sync Libraries** then **Start Scan**
+
+> **Why libraries matter:** Without this, Seerr doesn't know what's already in your Jellyfin library. Movies and shows will stay stuck at "Requested" even after they're downloaded and playable.
 
 ## 4.8 Bazarr (Subtitles)
 
@@ -275,15 +285,15 @@ Automatically downloads subtitles for your media.
 
 1. **Access:** `http://NAS_IP:6767`
 2. **Enable Authentication:** Settings → General → Security → Forms
-3. **Connect to Sonarr:** Settings → Sonarr → `http://gluetun:8989` (Sonarr runs via gluetun)
-4. **Connect to Radarr:** Settings → Radarr → `http://gluetun:7878` (Radarr runs via gluetun)
+3. **Connect to Sonarr:** Settings → Sonarr → Address `sonarr`, Port `8989` (Sonarr is on the bridge)
+4. **Connect to Radarr:** Settings → Radarr → Address `radarr`, Port `7878` (Radarr is on the bridge)
 5. **Add Providers:** Settings → Providers (OpenSubtitles, etc.)
 6. **Enable Subtitle Sync:** Settings → Subtitles → Subtitle Synchronization:
    - **Subtitle Synchronization:** On — enables `ffsubsync` to re-time subtitles against the audio track
    - **Series Score Threshold:** On (default 90) — auto-syncs series subs scoring below this
    - **Movies Score Threshold:** On (default 70) — auto-syncs movie subs scoring below this
 
-   > **Why:** Plex's built-in subtitle support may not always sync correctly. If subs are out of sync, this re-times the subtitle file against the audio track.
+   > **Why:** Jellyfin's web player has no manual subtitle delay control. If subs are out of sync, the only fix is re-timing the subtitle file itself — which is exactly what this does.
 
 ## 4.9 Pi-hole (DNS)
 

@@ -45,13 +45,16 @@ notify_failure() {
 STEP="initialising"
 trap 'notify_failure "Failed during: ${STEP}. Check /var/log/arr-backup.log"' ERR
 
+# Derive stack directory from script location (scripts/ is one level below stack root)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+NAS_STACK_DIR="$(dirname "$SCRIPT_DIR")"
+
 # Ensure critical services are running on ANY exit (normal, error, or interrupt)
 ensure_services_running() {
-  SCRIPT_DIR_ESR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  COMPOSE_FILE="${SCRIPT_DIR_ESR}/../docker-compose.arr-stack.yml"
+  COMPOSE_FILE="$NAS_STACK_DIR/docker-compose.arr-stack.yml"
   [ -f "$COMPOSE_FILE" ] || return 0
 
-  CRITICAL="gluetun pihole sonarr radarr prowlarr qbittorrent plex sabnzbd"
+  CRITICAL="gluetun pihole sonarr radarr prowlarr qbittorrent jellyfin sabnzbd"
   STOPPED=""
 
   for svc in $CRITICAL; do
@@ -196,10 +199,9 @@ VOLUME_SUFFIXES=(
   prowlarr-config         # Indexer configs and API keys
   bazarr-config           # Subtitle provider credentials
   uptime-kuma-data        # Monitor configurations
-  pihole-etc-dnsmasq      # Custom DNS settings (small)
 )
 
-# Request manager - prefer the current Seerr volume, keep Overseerr as fallback
+# Request manager - detect which volume exists
 if docker volume inspect "${VOLUME_PREFIX}_seerr-config" &>/dev/null; then
   VOLUME_SUFFIXES+=(seerr-config)
 elif docker volume inspect "${VOLUME_PREFIX}_overseerr-config" &>/dev/null; then
@@ -207,10 +209,11 @@ elif docker volume inspect "${VOLUME_PREFIX}_overseerr-config" &>/dev/null; then
 fi
 
 # Large volumes excluded by default (regenerate by re-scanning/re-downloading):
-#   plex-config (500MB)     - library metadata, watch history (re-scan to rebuild)
+#   jellyfin-config (407MB) - library metadata, watch history (re-scan to rebuild)
 #   sonarr-config (43MB)    - series database (re-scan to rebuild)
 #   radarr-config (110MB)   - movie database (re-scan to rebuild)
 #   pihole-etc-pihole (138MB) - blocklists auto-download on startup
+#   jellyfin-cache          - transcoding cache, fully regenerates
 #   duc-index               - disk usage index, regenerates on restart
 
 STEP="backing up .env"

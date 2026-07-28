@@ -10,81 +10,13 @@ docker compose -f docker-compose.utilities.yml up -d
 
 | Service | Description | Access |
 |---------|-------------|--------|
-| **Homarr** | Service dashboard — quick links to every app | http://homarr.lan |
-| **Tautulli** | Plex monitoring, analytics, and notifications | http://tautulli.lan |
-| **Tailscale** | VPN/remote access with exit node and subnet routes | https://login.tailscale.com/admin |
+| **deunhealth** | Auto-restarts services when VPN recovers | Internal |
 | **Uptime Kuma** | Service monitoring dashboard | http://uptime.lan |
 | **Beszel** | System metrics (CPU, RAM, disk, containers) | http://beszel.lan |
 | **duc** | Disk usage analyzer (treemap UI) | http://duc.lan |
-| **deunhealth** | Auto-restarts services when VPN recovers | Internal |
-| **qbit-scheduler** | Pauses torrents overnight for disk spin-down | Internal |
-| **Diun** | Docker image update notifications | Internal |
 | **Configarr** | Syncs TRaSH Guides quality profiles to Sonarr/Radarr | Run manually |
 
 > **Want Docker log viewing?** [Dozzle](https://dozzle.dev/) is a lightweight web UI for viewing container logs in real-time. Not included in the stack, but easy to add if you want it.
-
-## Homarr Setup
-
-Homarr is a service dashboard that gives you quick-access links to every app in your stack. After first launch, open http://NAS_IP:7575 (or http://homarr.lan) and create an admin account.
-
-This stack now tracks Homarr on `latest`, so its API can change underneath the setup automation. If the script stops working after an update, check Homarr's OpenAPI output first.
-
-**Create dashboard app entries for dashboard-visible services:**
-
-```bash
-# 1. In the Homarr UI, go to: Management > Tools > API > click "Authentication" tab > create an API key
-# 2. Copy the full key (format: <id>.<token>)
-# 3. Run the setup script:
-./scripts/setup-homarr.sh <NAS_IP> <API_KEY>
-```
-
-This creates app entries for the services with useful dashboards or external admin pages (Plex, Sonarr, Radarr, Pi-hole, etc.) with URLs, icons, and ping URLs where applicable. It does not place those apps on your Homarr board automatically. After running the script:
-
-1. Click the **pencil icon** (edit mode) on your board
-2. Click **+ Add item** > **App**
-3. Select each app and drag it onto your board
-4. Arrange into groups (Media, Downloads, Management, etc.)
-5. Click **Save**
-
-> **Tip:** The setup script is idempotent-safe — running it again just creates duplicates, which you can delete from Manage > Apps.
->
-> **Compatibility note:** The script depends on Homarr exposing the `/api/apps` route in its OpenAPI document. If `http://NAS_IP:7575/api/openapi` returns an empty `paths` object or the script reports that `/api/apps` is missing, your installed Homarr build is not compatible with this automation path. In that case, create the apps manually in the Homarr UI.
->
-> **Upgrading Homarr:** Because this stack now tracks `latest`, restart Homarr after updates and verify that `http://NAS_IP:7575/api/openapi` still includes `/api/apps` before using the setup script.
-
-## Tautulli Setup
-
-Tautulli monitors Plex activity, viewing history, and usage statistics. After first launch, open http://NAS_IP:8181 (or http://tautulli.lan) and follow the setup wizard to connect it to your Plex server.
-
-**Quick setup:**
-1. Enter your Plex server: `http://plex:32400` (container-to-container)
-2. Sign in with your Plex account
-3. Select your Plex server from the list
-4. Configure notification agents (optional — Discord, email, etc.)
-
-## Tailscale Setup
-
-Tailscale provides VPN/remote access to your NAS and Docker services from anywhere. It's configured as an exit node with subnet routes to both the Docker network (172.20.0.0/24) and your LAN (192.168.1.0/24).
-
-**1. Set your auth key in `.env`:**
-```bash
-TAILSCALE_AUTHKEY=tskey-auth-xxxxx
-TAILSCALE_HOSTNAME=ugreen-nas
-```
-
-Get an auth key from https://login.tailscale.com/admin/settings/keys — use a **reusable** key if you want the container to re-register after restarts.
-
-**2. Start the container:**
-```bash
-docker compose -f docker-compose.utilities.yml up -d tailscale
-```
-
-**3. Approve the routes in Tailscale admin:**
-Open https://login.tailscale.com/admin/machines, find your NAS, and:
-- Enable **Exit node**
-- Approve **subnet routes** (172.20.0.0/24, 192.168.1.0/24)
-
-Once approved, any Tailscale-connected device can access your services by IP (e.g., 172.20.0.4:32400 for Plex) even when away from home.
 
 ## Uptime Kuma Setup
 
@@ -116,18 +48,18 @@ docker restart uptime-kuma
 | Beszel | HTTP | `http://172.20.0.15:8090` | Use static IP |
 | duc | HTTP | `http://duc:80` | Has own IP |
 | FlareSolverr | HTTP | `http://172.20.0.3:8191` | Via Gluetun |
-| Plex | HTTP | `http://plex:32400/identity` | Has own IP |
+| Jellyfin | HTTP | `http://jellyfin:8096/health` | Has own IP |
 | Pi-hole | HTTP | `http://pihole:80/admin` | Has own IP |
 | Prowlarr | HTTP | `http://gluetun:9696/ping` | Via Gluetun |
 | qBittorrent | HTTP | `http://gluetun:8085` | Via Gluetun |
-| Radarr | HTTP | `http://gluetun:7878/ping` | Via Gluetun |
+| Radarr | HTTP | `http://radarr:7878/ping` | Has own IP |
 | Seerr | HTTP | `http://seerr:5055/api/v1/status` | Has own IP |
-| Sonarr | HTTP | `http://gluetun:8989/ping` | Via Gluetun |
+| Sonarr | HTTP | `http://sonarr:8989/ping` | Has own IP |
 | Traefik | HTTP | `http://traefik:80/ping` | Has own IP |
 
-> **Why `gluetun` not `sonarr`?** Services sharing Gluetun's network (`network_mode: service:gluetun`) don't get their own Docker DNS entries. Use the `gluetun` hostname or its static IP `172.20.0.3` to reach them.
+> **Why `gluetun` for qBittorrent/SABnzbd/Prowlarr?** Those share Gluetun's network (`network_mode: service:gluetun`) and don't get their own Docker DNS entries — use the `gluetun` hostname or its static IP `172.20.0.3`. Sonarr/Radarr run on the bridge with their own names/IPs, so monitor them directly.
 
-> **Optional extras**: You can also add monitors for external URLs (e.g., `https://plex.yourdomain.com`), Home Assistant, or other devices — these won't trigger pre-commit warnings.
+> **Optional extras**: You can also add monitors for external URLs (e.g., `https://jellyfin.yourdomain.com`), Home Assistant, or other devices — these won't trigger pre-commit warnings.
 
 ## Beszel Setup
 
@@ -151,29 +83,6 @@ BESZEL_KEY=ssh-ed25519 AAAA...your-key-here
 **Deploy the agent:**
 ```bash
 docker compose -f docker-compose.utilities.yml up -d beszel-agent
-```
-
-## qbit-scheduler Setup
-
-Pauses torrents overnight so NAS disks can spin down (quieter, less power).
-
-**Configure in `.env`:**
-```bash
-QBIT_USER=admin
-QBIT_PASSWORD=your_qbittorrent_password
-QBIT_PAUSE_HOUR=20    # Optional: hour to pause (default 20 = 8pm)
-QBIT_RESUME_HOUR=6    # Optional: hour to resume (default 6 = 6am)
-```
-
-**Manual control:**
-```bash
-docker exec qbit-scheduler /app/pause-resume.sh pause   # Stop all torrents
-docker exec qbit-scheduler /app/pause-resume.sh resume  # Start all torrents
-```
-
-**View logs:**
-```bash
-docker logs qbit-scheduler
 ```
 
 ## Configarr Setup
