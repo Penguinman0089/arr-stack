@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.24] - 2026-08-01
+
+### Changed
+- **Seerr** v3.3.0 → v3.4.1. The bump was made live on the NAS first (config volume backed up to `seerr-config-backup-20260801-202225.tgz` beforehand); this release absorbs it into the repo. Verified on the NAS: container healthy, `/api/v1/status` reports 3.4.1, and Seerr reaches qBittorrent through `gluetun:8085`.
+- **Diun now notifies about new release tags, not just digest changes of the pinned tag**: added `DIUN_DEFAULTS_WATCHREPO=true` plus a semver-only `DIUN_DEFAULTS_INCLUDETAGS=^v?\d+\.\d+\.\d+$` filter (nightlies/betas/rc tags stay silent). Without `watchRepo`, diun only reported when e.g. `:v3.3.0` itself was re-pushed — which is why the Seerr v3.4.x releases were never noticed.
+
+### Fixed
+- **`gluetun-recover` no longer fails silently after a gluetun RECREATE**: `docker restart` of a dependent only works when gluetun was *restarted* (same container ID). When gluetun is *recreated* — which any `docker compose up -d`, even of an unrelated service, will do if gluetun's config has drifted — the dependents still point at the old container ID and restart fails with "joining network namespace … No such container". The watcher now logs that failure loudly, including the exact `docker compose up -d --force-recreate <service>` command to run. (It cannot self-heal this case: fixing it requires compose, which the watcher doesn't have.)
+
+### Documentation
+- **TROUBLESHOOTING.md "After a Gluetun RECREATE"**: documents the 2026-08-01 incident — `docker compose up -d seerr` recreated gluetun (config drift), SIGKILLing qBittorrent/SABnzbd/Prowlarr/FlareSolverr (exit 137); `gluetun-recover` and plain `docker restart` both failed on the stale container ID; FlareSolverr then wedged in a `Dead` state dockerd could never remove ("removal of container is already in progress"), which blocked compose and required a Docker daemon restart to clear. Includes the compose-recreate fix, the daemon-restart escape hatch, and a `--dry-run` check to spot an imminent gluetun recreate before it bites.
+
 ## [1.7.23] - 2026-06-27
 
 ### Changed
