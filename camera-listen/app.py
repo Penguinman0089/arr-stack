@@ -82,10 +82,16 @@ async def listen(request: web.Request) -> web.StreamResponse:
         # silent doorstep, and this is a few kbit/s — there is nothing to gain
         # from UDP and a real failure mode to avoid.
         "-rtsp_transport", "tcp",
-        # *** A CAMERA THAT NEVER ANSWERS MUST NOT HANG FOR EVER. *** Without
-        # this, an unreachable NVR leaves ffmpeg blocked in connect and the
-        # handler blocked on its stdout, holding a client slot the NVR counts.
-        "-rw_timeout", str(CONNECT_TIMEOUT * 1_000_000),
+        # *** A SOURCE THAT NEVER ANSWERS MUST NOT HANG FOR EVER. *** Without
+        # this, ffmpeg blocks in connect and the handler blocks on its stdout,
+        # holding a session open at the far end.
+        #
+        # It is `-timeout`, NOT `-rw_timeout`: rw_timeout belongs to the file
+        # and http protocols, and the RTSP demuxer rejects it outright with
+        # "Option rw_timeout not found" — which fails the connection rather
+        # than the timeout, so every stream died instantly and looked exactly
+        # like an unreachable camera. Microseconds.
+        "-timeout", str(CONNECT_TIMEOUT * 1_000_000),
         "-i", rtsp_url(CAMERAS[name]),
         "-vn",                      # throw the video away; we only want the mic
         "-acodec", "libmp3lame",
