@@ -83,6 +83,7 @@ async def listen(request: web.Request) -> web.StreamResponse:
     README's test command uses.
     """
     name = request.match_info["camera"]
+    ext = request.match_info.get("ext", "mp3").lower()
     supplied = request.match_info.get("token") or request.query.get("t")
     if TOKEN and supplied != TOKEN:
         raise web.HTTPForbidden(text="bad or missing token\n")
@@ -108,10 +109,19 @@ async def listen(request: web.Request) -> web.StreamResponse:
         "-timeout", str(CONNECT_TIMEOUT * 1_000_000),
         "-i", rtsp_url(CAMERAS[name]),
         "-vn",                      # throw the video away; we only want the mic
-        "-acodec", "libmp3lame",
-        "-b:a", BITRATE,
+        # *** THE PANEL CAN ONLY DECODE WHAT WAS COMPILED INTO IT. ***
+        # ESPHome builds exactly the codecs its pipelines declare, and the
+        # sofa panel's announcement pipeline is FLAC — so the firmware has
+        # USE_AUDIO_FLAC_SUPPORT and NO mp3 decoder at all. An MP3 stream was
+        # rejected as an unsupported type before a byte was read, whatever the
+        # URL or Content-Type said. Serving .flac needs no firmware change and
+        # matches what the pipeline already advertises.
+        #
+        # FLAC is lossless and larger, which for 16 kHz mono speech on a LAN is
+        # not a number worth caring about.
+        *(["-acodec", "flac", "-f", "flac"] if ext == "flac"
+          else ["-acodec", "libmp3lame", "-b:a", BITRATE, "-f", "mp3"]),
         "-ac", "1",                 # the source is a 16 kHz mono mic
-        "-f", "mp3",
         "-",
     ]
 
@@ -124,7 +134,7 @@ async def listen(request: web.Request) -> web.StreamResponse:
     response = web.StreamResponse(
         status=200,
         headers={
-            "Content-Type": "audio/mpeg",
+            "Content-Type": "audio/flac" if ext == "flac" else "audio/mpeg",
             # No length, no ranges: this is endless. ESPHome's speaker
             # media_player sustains an endless MP3 indefinitely — proven on the
             # hardware before any of this was designed.
@@ -209,8 +219,10 @@ def main() -> None:
     app = web.Application()
     # Token in the path FIRST: it is the form the panel uses and the only one
     # whose URL ends in ".mp3". See the docstring on listen().
-    app.router.add_get("/listen/{token}/{camera}.mp3", listen)
-    app.router.add_get("/listen/{camera}.mp3", listen)
+    # .flac is what the panel asks for; .mp3 stays for curl, ffplay and any
+    # future client whose firmware has an mp3 decoder.
+    app.router.add_get(r"/listen/{token}/{camera}.{ext:mp3|flac}", listen)
+    app.router.add_get(r"/listen/{camera}.{ext:mp3|flac}", listen)
     app.router.add_get("/healthz", healthz)
     web.run_app(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8083")),
                 access_log=None)
