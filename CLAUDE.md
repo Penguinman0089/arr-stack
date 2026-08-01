@@ -33,6 +33,8 @@ This is delivered **branch-first** (resolves the old "test before commit" vs "de
 4. Only once it's confirmed working → **merge the branch to `main`** and push, then `git checkout main && git pull` on the NAS to sync. Nothing untested ever reaches `main`.
 5. If it fails verification → fix on the branch and re-verify, or discard the branch. The NAS goes back to `main` with `git checkout main`.
 
+**NEVER pass `--remove-orphans` to any `docker compose` command on the NAS.** The stack's services are split across multiple compose files sharing one project name, so compose treats every container from the *other* files as an orphan and deletes them all (this took out 11 containers on 2026-08-01). Likewise, only ever recreate a service via the compose file that defines it — e.g. traefik must go through `docker-compose.traefik.yml` or it loses its `traefik-lan` macvlan and every `.lan` URL dies. See `docs/TROUBLESHOOTING.md`.
+
 Back up a service's config volume before any version bump with a DB migration (`docker run --rm -v <vol>:/src:ro -v <dir>:/bak alpine tar czf /bak/<svc>-config-backup-<stamp>.tgz -C /src .`). Never `docker stop` + ad-hoc `docker run` against a live container's static IP to test — apply the change through compose so the test reflects the real config.
 
 ## E2E Tests
