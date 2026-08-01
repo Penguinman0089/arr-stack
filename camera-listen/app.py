@@ -25,40 +25,47 @@ from aiohttp import web
 
 LOG = logging.getLogger("camera-listen")
 
-# *** RTSP PATHS ARE NOT THE API CHANNEL NUMBERS, AND SINGLE DIGITS ARE
-# ZERO-PADDED. *** The rule is Preview_{channel+1:02d}_{main|sub}: API channel
-# 1 -> 02, 9 -> 10, 10 -> 11, 11 -> 12. Getting this wrong once produced the
-# retracted claim that one camera had no RTSP channel at all — the probe had
-# tried "1" rather than "02" and read the 404 as absence. All four have RTSP.
+# *** THE SOURCE IS go2rtc, NOT THE NVR, AND THAT IS THE WHOLE DESIGN. ***
+# This started out dialling the NVR directly, which meant this service needed
+# the NVR password and needed to know that RTSP paths are Preview_{ch+1:02d}
+# with single digits zero-padded — a rule this project has already got wrong
+# once and retracted.
 #
-# CAMERAS is "name:rtsp_number,name:rtsp_number". Names are the panel's, the
-# numbers are already the +1 zero-padded RTSP form, so no arithmetic happens
-# here — the mapping is stated rather than computed, because the computation is
-# exactly the part that was got wrong before.
+# go2rtc on the Home Assistant host already holds both. It has the streams
+# defined and verified, it owns the credentials, and it can reach the camera
+# VLAN. So this asks go2rtc instead, over its RTSP listener:
+#
+#   SOURCE_BASE=rtsp://<green>:8554     CAMERAS=cam1:doorcam_sub,...
+#
+# Three things fall away with that: no password here, no channel arithmetic,
+# and no second place to update when a camera moves. It also happens to be the
+# only version that works — the NAS cannot reach the camera VLAN at all, which
+# is what killed the direct design in deployment.
 def parse_cameras(raw: str) -> dict[str, str]:
+    """"cam1:doorcam_sub,cam2:loungecam_sub" -> {"cam1": "doorcam_sub", ...}"""
     out = {}
     for pair in filter(None, (p.strip() for p in raw.split(","))):
-        name, _, num = pair.partition(":")
-        if not name or not num.isdigit():
-            raise ValueError(f"CAMERAS entry {pair!r} is not name:number")
-        out[name] = num
+        name, _, stream = pair.partition(":")
+        if not name or not stream:
+            raise ValueError(f"CAMERAS entry {pair!r} is not name:go2rtc_stream")
+        out[name] = stream
     return out
 
 
 CAMERAS = parse_cameras(os.environ.get("CAMERAS", ""))
-NVR_HOST = os.environ.get("NVR_HOST", "")
-NVR_USER = os.environ.get("NVR_USER", "admin")
-NVR_PASS = os.environ.get("NVR_PASS", "")
+SOURCE_BASE = os.environ.get("SOURCE_BASE", "").rstrip("/")
 TOKEN = os.environ.get("LISTEN_TOKEN", "")
 BITRATE = os.environ.get("BITRATE", "32k")
 # Seconds to wait for the first audio before giving up on a camera.
 CONNECT_TIMEOUT = int(os.environ.get("CONNECT_TIMEOUT", "10"))
 
 
-def rtsp_url(num: str) -> str:
-    # The substream: it carries the same audio as the main stream and a
-    # fraction of the video we are about to discard anyway.
-    return f"rtsp://{NVR_USER}:{NVR_PASS}@{NVR_HOST}:554/h264Preview_{num}_sub"
+def rtsp_url(stream: str) -> str:
+    # go2rtc's own RTSP listener. Its `default_query: video&audio` means the
+    # audio track is there without asking. Point CAMERAS at the SUB streams:
+    # they carry the same microphone as the main stream and a fraction of the
+    # video this is about to discard anyway.
+    return f"{SOURCE_BASE}/{stream}"
 
 
 async def listen(request: web.Request) -> web.StreamResponse:
@@ -170,7 +177,7 @@ async def listen(request: web.Request) -> web.StreamResponse:
 
 async def healthz(_: web.Request) -> web.Response:
     missing = [k for k, v in
-               {"NVR_HOST": NVR_HOST, "NVR_PASS": NVR_PASS, "CAMERAS": CAMERAS}.items() if not v]
+               {"SOURCE_BASE": SOURCE_BASE, "CAMERAS": CAMERAS}.items() if not v]
     if missing:
         return web.json_response({"ok": False, "missing": missing}, status=503)
     return web.json_response({"ok": True, "cameras": sorted(CAMERAS)})
