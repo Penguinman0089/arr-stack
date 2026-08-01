@@ -285,9 +285,19 @@ services:
       # release never triggers a notification (this is how the Seerr v3.4.x
       # releases went unnoticed). INCLUDETAGS limits the scan to plain semver
       # tags so nightlies/betas/rc tags stay silent. $$ = literal $ (compose
-      # interpolation escape).
+      # interpolation escape). SORTTAGS+MAXTAGS cap each scan at the 25 highest
+      # semver tags per repo — without the cap diun fetches manifests for EVERY
+      # matching tag of all ~24 repos daily (registry rate-limit bait).
+      #
+      # NOTE: diun's "first check" (which suppresses notifications) is tracked
+      # per REPO, not per tag — enabling WATCHREPO against an existing /data
+      # DB notifies for every historical tag it hasn't seen (hundreds). When
+      # turning this on, move the old DB aside first so the first scan primes
+      # silently:  mv /data/diun.db /data/diun.db.pre-watchrepo  (then restart)
       - DIUN_DEFAULTS_WATCHREPO=true
       - DIUN_DEFAULTS_INCLUDETAGS=^v?\d+\.\d+\.\d+$$
+      - DIUN_DEFAULTS_SORTTAGS=semver
+      - DIUN_DEFAULTS_MAXTAGS=25
       - DIUN_NOTIF_WEBHOOK_ENDPOINT=${DIUN_WEBHOOK_URL}
       - DIUN_NOTIF_WEBHOOK_METHOD=POST
       - DIUN_NOTIF_WEBHOOK_HEADERS_0_NAME=Content-Type
