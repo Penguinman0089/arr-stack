@@ -10,6 +10,9 @@
 .claude/config.local.md
 .claude/settings.local.json
 
+# Local-only client-side notes (kept out of git)
+.claude/playback-diagnostics.md
+
 # Traefik SSL Certificates
 traefik/acme.json
 traefik/*.json
@@ -108,3 +111,6 @@ docs/*-BASELINE*.md
 # E2E test artifacts
 tests/e2e/screenshots/*.png
 test-results/
+
+# Camera Listen holds the NVR password
+camera-listen/.env
