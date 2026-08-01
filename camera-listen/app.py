@@ -69,8 +69,22 @@ def rtsp_url(stream: str) -> str:
 
 
 async def listen(request: web.Request) -> web.StreamResponse:
+    """*** THE URL MUST END IN .mp3 — THE TOKEN CANNOT BE A QUERY PARAMETER. ***
+
+    ESPHome decides what it is about to decode with
+    `str_endswith_ignore_case(url, ".mp3")` — a strict suffix test on the whole
+    URL, run before the response headers arrive, so the Content-Type this sends
+    is never consulted. `/listen/cam1.mp3?t=abc` ends in the token, fails that
+    test, and the panel rejects the stream with ESP_ERR_NOT_SUPPORTED before it
+    reads a byte.
+
+    So the token goes in the PATH: /listen/<token>/cam1.mp3. The query form is
+    still accepted, because curl and ffplay do not care and it is what the
+    README's test command uses.
+    """
     name = request.match_info["camera"]
-    if TOKEN and request.query.get("t") != TOKEN:
+    supplied = request.match_info.get("token") or request.query.get("t")
+    if TOKEN and supplied != TOKEN:
         raise web.HTTPForbidden(text="bad or missing token\n")
     if name not in CAMERAS:
         raise web.HTTPNotFound(text=f"unknown camera {name!r}; have {sorted(CAMERAS)}\n")
@@ -193,6 +207,9 @@ def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"),
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
     app = web.Application()
+    # Token in the path FIRST: it is the form the panel uses and the only one
+    # whose URL ends in ".mp3". See the docstring on listen().
+    app.router.add_get("/listen/{token}/{camera}.mp3", listen)
     app.router.add_get("/listen/{camera}.mp3", listen)
     app.router.add_get("/healthz", healthz)
     web.run_app(app, host="0.0.0.0", port=int(os.environ.get("PORT", "8083")),
