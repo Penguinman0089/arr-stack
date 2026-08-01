@@ -119,7 +119,11 @@ async def listen(request: web.Request) -> web.StreamResponse:
         #
         # FLAC is lossless and larger, which for 16 kHz mono speech on a LAN is
         # not a number worth caring about.
-        *(["-acodec", "flac", "-f", "flac"] if ext == "flac"
+        # *** -sample_fmt s16 IS NOT OPTIONAL. *** ffmpeg's flac encoder picks
+        # 24-bit by default, and ESPHome's decoder supports 16 only —
+        # "Incompatible bits per sample" after a clean connect and a correct
+        # sample rate, which is a long way to travel to fail on a number.
+        *(["-acodec", "flac", "-sample_fmt", "s16", "-f", "flac"] if ext == "flac"
           else ["-acodec", "libmp3lame", "-b:a", BITRATE, "-f", "mp3"]),
         "-ac", "1",                 # the source is a 16 kHz mono mic
         "-",
