@@ -1,0 +1,32 @@
+[Unit]
+Description=Reconcile Docker compose stacks after boot
+Documentation=file:/volume1/docker/boot-compose-up.sh
+
+# Deliberately NO RequiresMountsFor= and NO Requires=.
+#
+# The first version used RequiresMountsFor=/volume1 and Requires=docker.service.
+# Those are HARD dependencies: on the 05 Aug 2026 21:06 boot, /volume1 was not
+# mounted nine seconds in, so systemd did not wait — it failed the job outright
+# ("Dependency failed ... result 'dependency'") and never retried. The unit sat
+# inactive while DNS stayed down.
+#
+# Wants= is advisory: if docker.service is late or absent, this unit still runs
+# and does its own waiting below. Ordering-only, never fatal.
+Wants=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+# Wait for the script to actually exist rather than depending on the mount unit.
+# UGOS mounts /volume1 outside systemd's view early in boot, so the only reliable
+# test is the file itself. Up to 10 minutes, then give up loudly.
+ExecStart=/bin/sh -c 'i=0; while [ ! -x /volume1/docker/boot-compose-up.sh ]; do i=$((i+1)); if [ $i -gt 120 ]; then echo "/volume1/docker/boot-compose-up.sh never appeared after 10 minutes" >&2; exit 1; fi; sleep 5; done; exec /bin/sh /volume1/docker/boot-compose-up.sh'
+
+# The script waits for dockerd separately, then brings up every stack. A cold
+# boot with Immich and Frigate can take a while; the default 90s would kill it.
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

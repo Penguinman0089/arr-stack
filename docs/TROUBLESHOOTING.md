@@ -283,6 +283,43 @@ sudo reboot
 
 **Keep the DHCP reservation too:** After switching to a static IP, keep the reservation on your router. The static IP means the NAS claims it instantly at boot; the reservation means the router won't hand out that same IP to another device via DHCP. Both together prevent IP conflicts.
 
+## Docker: Ports Not Published After Reboot (Containers "Running", Nothing Listening)
+
+**Symptom:** After any reboot — or a UGOS update — the whole network loses DNS, yet everything *looks* fine. `docker ps` shows Pi-hole `Up` and **healthy**. The giveaway is the `PORTS` column: it's **empty** for pihole, and nothing is listening on `${NAS_IP}:53`.
+
+**This is not the exit-128 problem above.** There, Pi-hole is *stopped* and the cause is obvious. Here it is *running and answering nobody*, which is far harder to spot — `docker ps`, health status and the Pi-hole UI all look normal.
+
+**Cause:** at boot the Docker **daemon** restores containers itself (`restart: always`) — compose is not involved, so no amount of `depends_on` affects it. Bindings pinned to a specific host IP fail to be established, and this Docker version logs it and starts the container anyway rather than refusing. Verified across three reboots on 2026-08-05: **pihole, baserow and therapybot — the only three containers pinned to `${NAS_IP}` — failed every time, while all 13 wildcard-bound containers were fine.** A single failed binding drops the container's *entire* mapping set, which is why Pi-hole also lost its `0.0.0.0:8081` web UI.
+
+Pi-hole's healthcheck (`dig @127.0.0.1` *inside* the container) passes throughout, so neither `docker ps` nor `deunhealth` will ever flag this.
+
+**Diagnose:**
+```bash
+docker ps --format "{{.Names}}\t{{.Ports}}" | grep pihole   # empty PORTS = not published
+ss -tlnp | grep ':53 '                                      # only 127.0.0.1:53 = UGOS's own dnsmasq
+dig @<NAS_IP> google.com                                    # "connection refused"
+```
+
+**Fix (permanent):** `scripts/boot-compose-up.sh`, run at boot by `scripts/boot-compose-up.service`. It runs `docker compose up -d` across every deployed stack, which reconciles each container against its compose file and re-establishes the bindings. Deployed as:
+
+| Repo | On the NAS |
+|---|---|
+| `scripts/boot-compose-up.sh` | `/volume1/docker/boot-compose-up.sh` (symlink into this repo) |
+| `scripts/boot-compose-up.service` | `/etc/systemd/system/boot-compose-up.service` (`systemctl enable`) |
+
+DNS is back ~20s after boot (Pi-hole's stack is first in the list, deliberately); the full sweep takes ~5 minutes.
+
+**Critical: use `Wants=`, never `Requires=` or `RequiresMountsFor=` in that unit.** The first version used `RequiresMountsFor=/volume1` + `Requires=docker.service`. Those are *hard* dependencies: `/volume1` wasn't mounted nine seconds into boot, so systemd failed the job outright (`Job boot-compose-up.service/start failed with result 'dependency'`) and **never retried**. DNS stayed down and the unit sat `inactive (dead)` with no error visible in `systemctl status`. The unit now waits for the script itself in `ExecStart`.
+
+**A static IP does NOT fix this** (unlike the exit-128 case above). UGOS reverts the Control Panel setting to DHCP on reboot, and `/etc/network/interfaces.d/ifcfg-eth0` has declared `static` since February while UGOS's own `dhclient@eth0.service` overrides it regardless.
+
+**Manual repair**, if the unit is ever missing or you need DNS back now — no root required, `mooseadmin` is in the `docker` group:
+```bash
+sh /volume1/docker/boot-compose-up.sh
+```
+
+**Reading boot logs:** `mooseadmin` must be in the `systemd-journal` group or `journalctl` silently returns nothing, which reads exactly like "no logs" rather than "no permission" — that mistake cost an hour of diagnosis. `sudo usermod -aG systemd-journal mooseadmin`.
+
 ## Pi-hole: Gravity Update Fails With Empty Status
 
 **Symptom:** Running `pihole -g` (or "Update Gravity" in the web UI) shows a blocklist with a blank status and falls back to cache:
