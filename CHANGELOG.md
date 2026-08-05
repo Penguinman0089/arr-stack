@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.26] - 2026-08-05
+
+### Changed
+- **Image bumps:** cloudflared `2026.6.1` → `2026.7.3`, Pi-hole `2026.06.0` → `2026.07.2`, Tailscale `v1.98.4` → `v1.98.10`, and the docker CLI used by `gluetun-recover` `26.1-cli` → `29.7-cli`. Verified on the NAS from the branch before merge: all four containers healthy on the new tags, no unhealthy containers anywhere, Pi-hole resolving public and `.lan` names with its `${NAS_IP}:53` bindings published, Tailscale re-registered on the tailnet, and all `.lan` services answering through Traefik. The docker-CLI jump is three majors, so `gluetun-recover` was checked specifically — 0 restarts and it can still drive the docker socket (`docker exec gluetun-recover docker ps` lists containers), which is the only API surface it uses.
+
+### Documentation
+- **A Pi-hole restart poisons macOS's DNS cache for `.lan` when clients have a public fallback resolver.** While Pi-hole is down, `.lan` lookups fall through to the secondary (e.g. `1.1.1.1`), which answers **NXDOMAIN** authoritatively; macOS caches that negative answer and keeps serving it after Pi-hole returns, so every `.lan` domain looks dead while `dig @<NAS_IP>` works perfectly. Observed during this bump. The fix on each Mac is an `/etc/resolver/lan` file pinning that TLD to Pi-hole, which bypasses the fallback for `.lan` only and keeps the fallback protecting general internet access.
+
 ## [1.7.25] - 2026-08-05
 
 ### Fixed
