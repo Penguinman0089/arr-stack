@@ -78,9 +78,11 @@ echo ""
 echo -e "${BLUE}2. Checking environment variable documentation...${NC}"
 if check_env_vars; then
     echo -e "    ${GREEN}OK${NC}: All compose variables documented"
-fi
-# Note: check_env_vars outputs its own errors
-if [[ $? -ne 0 ]]; then
+else
+    # check_env_vars outputs its own errors. This MUST be an else branch: a
+    # `[[ $? -ne 0 ]]` after the `fi` reads the exit status of the *if
+    # statement*, which is 0 whenever the condition was false and there is no
+    # else — so the check never once blocked a commit.
     ((ERRORS++))
 fi
 echo ""
