@@ -21,7 +21,7 @@ This NAS runs other compose projects besides this one. At least one of them has 
 docker network inspect arr-stack --format '{{range .Containers}}{{.Name}}={{.IPv4Address}} {{end}}'
 ```
 
-Which projects those are, and where they live, is deployment detail — it belongs in `.claude/config.local.md` (untracked), not in a public repo.
+Which projects those are, and where they live, is deployment detail for a specific machine. It belongs in whatever private repo owns that machine's inventory — not in a public template.
 
 ## Deploying to the NAS
 
