@@ -2,7 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## [1.7.26] - 2026-08-05
+## [1.7.27] - 2026-08-15
+
+### Removed
+- **Camera Listen is gone from this repo**, to `Pharkie/sofa-panel-tab5` where its only consumer lives. It was a private audio bridge — Reolink camera audio transcoded to MP3 for a sofa-mounted ESPHome panel — and it had nothing to do with a media stack. Every fork of this repo was cloning it. The commit that added it (2026-08-01) argued that NAS services must deploy from here; that stopped being true once this NAS started booting stacks from four separate directories, and stack orchestration is moving out to a private `nas-ops` repo that holds paths rather than code (Frigate and Immich already work that way). Deleted: `camera-listen/`, `docker-compose.camera-listen.yml`, and its `.gitignore` entry. `scripts/boot-compose-up.sh` now points at the new location. The TROUBLESHOOTING.md reference is left alone — it is a factual record of what the 2026-08-01 `--remove-orphans` incident deleted, and rewriting history is not the job of a changelog.
+
+### Fixed
+- **The bats suite is green again — 23/23, up from 19/23.** All four failures were Camera Listen, and all four were the test suite being right. It was the only service built from a Dockerfile rather than pulled, so `camera-listen:latest` failed *both* `:latest` pinning tests *and* the registry-existence test (which tried to query a registry for an image that only ever existed locally, returning curl 56). It was also the only user of `env_file:`, which `security.bats` forbids on infrastructure containers. None of that was a flaw in the tests: they are written for a stack of pulled images, and the service that broke the assumption did not belong here. A downstream fork ([leonardoazeredo](https://github.com/leonardoazeredo/ultimate-arr-stack)) had independently hit the same four failures and worked around them with a `get_pulled_images()` helper that skips services with a sibling `build:` directive — a sound fix, and no longer needed here.
 
 ### Changed
 - **Image bumps:** cloudflared `2026.6.1` → `2026.7.3`, Pi-hole `2026.06.0` → `2026.07.2`, Tailscale `v1.98.4` → `v1.98.10`, and the docker CLI used by `gluetun-recover` `26.1-cli` → `29.7-cli`. Verified on the NAS from the branch before merge: all four containers healthy on the new tags, no unhealthy containers anywhere, Pi-hole resolving public and `.lan` names with its `${NAS_IP}:53` bindings published, Tailscale re-registered on the tailnet, and all `.lan` services answering through Traefik. The docker-CLI jump is three majors, so `gluetun-recover` was checked specifically — 0 restarts and it can still drive the docker socket (`docker exec gluetun-recover docker ps` lists containers), which is the only API surface it uses.
