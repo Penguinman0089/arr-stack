@@ -289,7 +289,7 @@ sudo reboot
 
 **This is not the exit-128 problem above.** There, Pi-hole is *stopped* and the cause is obvious. Here it is *running and answering nobody*, which is far harder to spot — `docker ps`, health status and the Pi-hole UI all look normal.
 
-**Cause:** at boot the Docker **daemon** restores containers itself (`restart: always`) — compose is not involved, so no amount of `depends_on` affects it. Bindings pinned to a specific host IP fail to be established, and this Docker version logs it and starts the container anyway rather than refusing. Verified across three reboots on 2026-08-05: **pihole, baserow and therapybot — the only three containers pinned to `${NAS_IP}` — failed every time, while all 13 wildcard-bound containers were fine.** A single failed binding drops the container's *entire* mapping set, which is why Pi-hole also lost its `0.0.0.0:8081` web UI.
+**Cause:** at boot the Docker **daemon** restores containers itself (`restart: always`) — compose is not involved, so no amount of `depends_on` affects it. Bindings pinned to a specific host IP fail to be established, and this Docker version logs it and starts the container anyway rather than refusing. Verified across three reboots on 2026-08-05: **the only three containers pinned to `${NAS_IP}` — Pi-hole, plus two from a neighbouring compose project — failed every time, while all 13 wildcard-bound containers were fine.** A single failed binding drops the container's *entire* mapping set, which is why Pi-hole also lost its `0.0.0.0:8081` web UI.
 
 Pi-hole's healthcheck (`dig @127.0.0.1` *inside* the container) passes throughout, so neither `docker ps` nor `deunhealth` will ever flag this.
 
