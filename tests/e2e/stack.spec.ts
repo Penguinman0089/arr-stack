@@ -1,40 +1,9 @@
 import { test, expect } from '@playwright/test';
-import * as path from 'path';
+import { HOST, url, screenshotPath, addHeaderToAllRequests } from './helpers';
 
-const HOST = process.env.NAS_HOST ?? 'localhost';
-const SCREENSHOTS_DIR = path.join(__dirname, 'screenshots');
-
-function screenshotPath(name: string) {
-  return path.join(SCREENSHOTS_DIR, `${name}.png`);
-}
-
-// ─── Service ports ───────────────────────────────────────────────────────────
-
-const PORTS = {
-  jellyfin: 8096,
-  sonarr: 8989,
-  radarr: 7878,
-  prowlarr: 9696,
-  qbittorrent: 8085,
-  sabnzbd: 8082,
-  seerr: 5055,
-  bazarr: 6767,
-  pihole: 8081,
-} as const;
-
-function url(service: keyof typeof PORTS, pathStr = '') {
-  return `http://${HOST}:${PORTS[service]}${pathStr}`;
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Intercept all requests and add a custom header. Works for SPA auth bypass. */
-async function addHeaderToAllRequests(page: import('@playwright/test').Page, name: string, value: string) {
-  await page.route('**/*', async (route) => {
-    const headers = { ...route.request().headers(), [name]: value };
-    await route.continue({ headers });
-  });
-}
+// Ports, URL building, screenshot paths and the auth-header shim moved to
+// ./helpers so the VPN and networking specs share one definition instead of
+// each keeping a copy that drifts.
 
 // ─── UI screenshot tests ─────────────────────────────────────────────────────
 
@@ -336,23 +305,14 @@ test.describe('UI screenshots', () => {
 
 // ─── VPN connectivity test ────────────────────────────────────────────────────
 
-test.describe('VPN connectivity', () => {
-  test('VPN-tunneled services are reachable (Gluetun healthy)', async ({ request }) => {
-    const sonarrKey = process.env.SONARR_API_KEY;
-    test.skip(!sonarrKey, 'SONARR_API_KEY not set');
-
-    // Sonarr/Radarr/qBittorrent run through Gluetun (network_mode: service:gluetun).
-    // They only start when Gluetun is healthy (VPN connected). If we can reach
-    // them, the VPN tunnel is active.
-    // For actual IP comparison, run scripts/check-vpn.sh on the NAS.
-    const res = await request.get(url('sonarr', '/api/v3/system/status'), {
-      headers: { 'X-Api-Key': sonarrKey! },
-    });
-    expect(res.ok()).toBeTruthy();
-    const status = await res.json();
-    expect(status.appName).toBe('Sonarr');
-  });
-});
+// The "VPN connectivity" test that used to live here has moved to
+// vpn-security.spec.ts, and was rewritten rather than relocated. It reached
+// Sonarr's API and concluded the tunnel was up, on the stated premise that
+// "Sonarr/Radarr/qBittorrent run through Gluetun (network_mode:
+// service:gluetun)". That premise is false: Sonarr and Radarr were moved OFF
+// the VPN netns onto the bridge (docs/MIGRATION-arr-off-vpn.md), so the test
+// passed identically whether the VPN was working, misrouted, or leaking.
+// vpn-security.spec.ts compares real egress IPs per service instead.
 
 // ─── API assertion tests ─────────────────────────────────────────────────────
 
