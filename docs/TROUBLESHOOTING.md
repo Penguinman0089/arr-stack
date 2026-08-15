@@ -300,22 +300,24 @@ ss -tlnp | grep ':53 '                                      # only 127.0.0.1:53 
 dig @<NAS_IP> google.com                                    # "connection refused"
 ```
 
-**Fix (permanent):** `scripts/boot-compose-up.sh`, run at boot by `scripts/boot-compose-up.service`. It runs `docker compose up -d` across every deployed stack, which reconciles each container against its compose file and re-establishes the bindings. Deployed as:
+**Fix (permanent): run `docker compose up -d` across every stack at boot.** That reconciles each container against its compose file and re-establishes the bindings, which is precisely the step a `restart: always` misses. A one-shot systemd unit is the natural home for it.
 
-| Repo | On the NAS |
-|---|---|
-| `scripts/boot-compose-up.sh` | `/volume1/docker/boot-compose-up.sh` (symlink into this repo) |
-| `scripts/boot-compose-up.service` | `/etc/systemd/system/boot-compose-up.service` (`systemctl enable`) |
+This repo does **not** ship that script. Which stacks exist, where they live and what order they need is specific to your machine — the version that used to live here hardcoded a private inventory, which is no business of a public template. Orchestrating your own boxes is the operator's job. What is worth copying is the shape, and the four things that were learned painfully:
 
-DNS is back ~20s after boot (Pi-hole's stack is first in the list, deliberately); the full sweep takes ~5 minutes.
+1. **Wait for `dockerd` inside the script**, in a loop, before doing anything. `@reboot` and systemd both fire before Docker is accepting connections.
+2. **Order the stacks so DNS comes up first.** Pi-hole's file first means DNS is back ~20s after boot rather than after the full sweep, which takes ~5 minutes here.
+3. **Let one stack's failure not stop the rest.** DNS matters more than a photo library.
+4. **Never pass `--remove-orphans`** — see the entry above; it deletes the other compose files' containers.
 
-**Critical: use `Wants=`, never `Requires=` or `RequiresMountsFor=` in that unit.** The first version used `RequiresMountsFor=/volume1` + `Requires=docker.service`. Those are *hard* dependencies: `/volume1` wasn't mounted nine seconds into boot, so systemd failed the job outright (`Job boot-compose-up.service/start failed with result 'dependency'`) and **never retried**. DNS stayed down and the unit sat `inactive (dead)` with no error visible in `systemctl status`. The unit now waits for the script itself in `ExecStart`.
+DNS is back ~20s after boot (Pi-hole's stack first, deliberately); the full sweep takes ~5 minutes.
+
+**Critical: use `Wants=`, never `Requires=` or `RequiresMountsFor=` in that unit.** The first version here used `RequiresMountsFor=/volume1` + `Requires=docker.service`. Those are *hard* dependencies: `/volume1` wasn't mounted nine seconds into boot, so systemd failed the job outright (`Job boot-compose-up.service/start failed with result 'dependency'`) and **never retried**. DNS stayed down and the unit sat `inactive (dead)` with no error visible in `systemctl status`. Make the unit wait for its own preconditions in `ExecStart` instead — UGOS mounts `/volume1` outside systemd's view, so the only reliable test is the file itself.
 
 **A static IP does NOT fix this** (unlike the exit-128 case above). UGOS reverts the Control Panel setting to DHCP on reboot, and `/etc/network/interfaces.d/ifcfg-eth0` has declared `static` since February while UGOS's own `dhclient@eth0.service` overrides it regardless.
 
-**Manual repair**, if the unit is ever missing or you need DNS back now — no root required, `mooseadmin` is in the `docker` group:
+**Manual repair**, if you need DNS back right now — no root required, as long as your user is in the `docker` group. Run it against the DNS stack first, then the rest:
 ```bash
-sh /volume1/docker/boot-compose-up.sh
+cd /volume1/docker/arr-stack && docker compose -f docker-compose.arr-stack.yml up -d
 ```
 
 **Reading boot logs:** `mooseadmin` must be in the `systemd-journal` group or `journalctl` silently returns nothing, which reads exactly like "no logs" rather than "no permission" — that mistake cost an hour of diagnosis. `sudo usermod -aG systemd-journal mooseadmin`.

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.7.28] - 2026-08-15
+
+### Removed
+- **`scripts/boot-compose-up.sh` and `scripts/boot-compose-up.service` have moved out**, to a private repo that owns the machine they run on. They were added in 1.7.25 to fix a real and nasty problem — Docker leaving `${NAS_IP}`-pinned ports unpublished after a reboot — but the script did that by hardcoding a list of *one particular NAS's* stacks, including private ones this repo has no business knowing exist. Worse, it was symlinked into place, so a public template repo was not documenting a boot sequence, it **was** the boot sequence for private infrastructure. Which stacks exist, where they live and in what order they need to start is the operator's business, not a template's.
+
+### Changed
+- **TROUBLESHOOTING.md's "Ports Not Published After Reboot" entry now teaches the fix instead of shipping it.** The symptom, the diagnosis and — more valuable — the four things that were learned painfully are all still here: wait for `dockerd` inside the script rather than trusting systemd ordering; put DNS first so it returns in ~20s rather than after the full ~5 minute sweep; let one stack's failure not stop the rest; and never `--remove-orphans`. The `Wants=` vs `Requires=`/`RequiresMountsFor=` warning stays too, since that mistake left the unit `inactive (dead)` with DNS down and nothing in `systemctl status`. Manual repair is now a plain `docker compose up -d` against this stack's own file, which is all a reader of *this* repo needs.
+
 ## [1.7.27] - 2026-08-15
 
 ### Removed
