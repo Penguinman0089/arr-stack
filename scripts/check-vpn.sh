@@ -11,7 +11,8 @@ set -euo pipefail
 #
 # WHAT CHANGED AND WHY (2026-08-15): this used to compare Gluetun's exit IP
 # against the NAS's LAN IP from `hostname -I`. Those are a public address and a
-# private one — 185.x.x.x versus 10.10.0.10 — so they could never be equal and
+# private one — a routable WAN address versus an RFC 1918 LAN address — so they
+# could never be equal and
 # the leak branch could never fire. It reported "OK: VPN is active" whether the
 # tunnel was up, down or leaking.
 #

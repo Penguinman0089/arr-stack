@@ -154,7 +154,7 @@ docker compose -f docker-compose.arr-stack.yml up -d --remove-orphans
 
 This happened for real on 2026-08-01 (~20:30 BST): a single `--remove-orphans` run removed **traefik, camera-listen, cloudflared, diun, uptime-kuma, beszel, beszel-agent, gluetun-recover, deunhealth, duc and configarr** in one stroke. Volumes and configs survived (downtime only), and everything had to be restored file by file.
 
-The same split has a second face: **recreate a service only via the file that defines it.** Attachments and settings that live in one file are silently dropped if the container is ever brought up through another path — e.g. traefik's `traefik-lan` macvlan (its `10.10.0.11` LAN presence) exists only in `docker-compose.traefik.yml`; a traefik container created without that file comes up bridge-only and **every `.lan` URL dies while the container still reports healthy** (also observed 2026-08-01).
+The same split has a second face: **recreate a service only via the file that defines it.** Attachments and settings that live in one file are silently dropped if the container is ever brought up through another path — e.g. traefik's `traefik-lan` macvlan (its `192.168.1.11` LAN presence) exists only in `docker-compose.traefik.yml`; a traefik container created without that file comes up bridge-only and **every `.lan` URL dies while the container still reports healthy** (also observed 2026-08-01).
 
 If you actually need to prune an orphan, remove that one container by name with `docker rm`.
 
@@ -320,7 +320,7 @@ DNS is back ~20s after boot (Pi-hole's stack first, deliberately); the full swee
 cd /volume1/docker/arr-stack && docker compose -f docker-compose.arr-stack.yml up -d
 ```
 
-**Reading boot logs:** `mooseadmin` must be in the `systemd-journal` group or `journalctl` silently returns nothing, which reads exactly like "no logs" rather than "no permission" — that mistake cost an hour of diagnosis. `sudo usermod -aG systemd-journal mooseadmin`.
+**Reading boot logs:** `nasadmin` must be in the `systemd-journal` group or `journalctl` silently returns nothing, which reads exactly like "no logs" rather than "no permission" — that mistake cost an hour of diagnosis. `sudo usermod -aG systemd-journal nasadmin`.
 
 ## Pi-hole: Gravity Update Fails With Empty Status
 
