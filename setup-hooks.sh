@@ -41,6 +41,27 @@ chmod +x "$SCRIPT_DIR/scripts/pre-commit"
 chmod +x "$SCRIPT_DIR/scripts/lib/"*.sh
 echo "  Made scripts executable"
 
+# ---------------------------------------------------------------------------
+# PyYAML, for the hook's YAML syntax check.
+#
+# If the system python3 already has it (most Linux, including the NAS), do
+# nothing. Otherwise build a repo-local .venv — macOS ships an
+# externally-managed Python (PEP 668) that refuses `pip install`, which is why
+# the check used to run degraded on exactly the machine where commits happen.
+# ---------------------------------------------------------------------------
+if python3 -c "import yaml" 2>/dev/null; then
+    echo "  PyYAML: already available via system python3"
+elif [[ -x "$SCRIPT_DIR/.venv/bin/python3" ]] && "$SCRIPT_DIR/.venv/bin/python3" -c "import yaml" 2>/dev/null; then
+    echo "  PyYAML: already available via .venv"
+elif python3 -m venv "$SCRIPT_DIR/.venv" 2>/dev/null &&
+     "$SCRIPT_DIR/.venv/bin/pip" install --quiet pyyaml 2>/dev/null; then
+    echo "  PyYAML: installed into .venv (gitignored)"
+else
+    echo "  WARNING: could not provide PyYAML."
+    echo "           The hook will fall back to 'docker compose config', or"
+    echo "           report YAML validation as SKIPPED if that is missing too."
+fi
+
 echo ""
 echo "Done! Pre-commit hook installed."
 echo ""

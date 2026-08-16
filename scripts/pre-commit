@@ -91,9 +91,10 @@ echo ""
 # CHECK 3: YAML Syntax (BLOCKS)
 # ==========================================
 echo -e "${BLUE}3. Checking YAML syntax...${NC}"
-if check_yaml_syntax; then
-    echo -e "    ${GREEN}OK${NC}: YAML syntax valid"
-else
+# check_yaml_syntax prints its own status line, including which validator it
+# used and whether it in fact validated anything. A blanket "OK" here used to
+# be printed even when the check had silently done nothing at all.
+if ! check_yaml_syntax; then
     ((ERRORS++))
 fi
 echo ""
