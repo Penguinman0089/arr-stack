@@ -67,11 +67,20 @@ docker exec tailscale tailscale status --json | grep -i -A2 health
 
 Tailscale reports this as *"Subnet routing is enabled, but IP forwarding is disabled"* — which reads as though subnet routing is broken when it may only be the IPv6 half that's missing. If you need IPv6, enable it on the host (`sysctl -w net.ipv6.conf.all.forwarding=1`, then persist in `/etc/sysctl.d/`); if you're IPv4-only, approve just `0.0.0.0/0` and ignore the warning.
 
-Confirm the node is actually being offered once approved — `ExitNodeOption` stays `false` until then:
+**To confirm approval actually landed, compare what the node *advertises* against what the tailnet *allows*:**
 
 ```bash
-docker exec tailscale tailscale status --json | grep -i exitnodeoption
+docker exec tailscale tailscale status --json \
+  | python3 -c "import sys,json; s=json.load(sys.stdin)['Self']; print('advertised:', s.get('AllowedIPs'))"
+docker exec tailscale tailscale debug prefs \
+  | python3 -c "import sys,json; print('offered   :', json.load(sys.stdin).get('AdvertiseRoutes'))"
 ```
+
+`AdvertiseRoutes` is what this machine *claims*; it contains `0.0.0.0/0` and `::/0` the moment you add the flag, approved or not. **`AllowedIPs` is what the coordination server has actually accepted** — if `0.0.0.0/0` appears there, approval landed.
+
+> Don't use `ExitNodeOption` for this. It reads `true` once the node is advertising and forwarding correctly, which is not the same as approved, so it can mislead in both directions.
+
+If a client reports "no exit nodes found" while `AllowedIPs` looks right, check the *client* is actually connected (`tailscale status` on that device) — a stopped client has no netmap and can't see anything on the tailnet.
 
 ## 4. Install Tailscale on your devices
 
