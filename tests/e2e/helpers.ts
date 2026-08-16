@@ -214,9 +214,16 @@ export function dockerLifecycle(action: 'stop' | 'start', container: string): vo
  */
 export function egressIp(container: string): string | null {
   try {
+    // Probe for curl rather than running it and letting it fail: `curl || wget`
+    // works, but on the wget-only images the shell writes "sh: curl: not found"
+    // to stderr for every single call, which the runner then prints. Seven
+    // lines of that per run trains you to ignore this file's output, which is
+    // the last thing a leak detector needs.
     return dockerExec(container, [
       'sh', '-c',
-      'curl -s --max-time 5 https://ifconfig.me/ip || wget -qO- --timeout=5 https://ifconfig.me/ip',
+      'if command -v curl >/dev/null 2>&1; then ' +
+      'curl -s --max-time 5 https://ifconfig.me/ip; ' +
+      'else wget -qO- --timeout=5 https://ifconfig.me/ip; fi',
     ], 15_000);
   } catch {
     return null;
