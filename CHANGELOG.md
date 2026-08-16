@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.8.0] - 2026-08-16
+
+A large batch. Two themes: **this repo stopped carrying things that weren't a media stack**, and **several checks turned out to be blind** — running, reporting success, and structurally unable to see the failure they existed for.
+
+### Added
+- **Licence files, and a real structure.** `LICENSE-code` (PolyForm Noncommercial 1.0.0) for compose files, scripts, tests and hooks; `LICENSE-docs` (CC BY-NC 4.0) for prose; `LICENSE` as an index explaining which applies where. Creative Commons explicitly recommend against CC licences for software — no patent grant, no source provisions, "NonCommercial" loosely defined for code. Four test/script files adapted from a downstream fork **stay on CC BY-NC 4.0** pending their author's agreement; relicensing someone else's copyright isn't ours to do. Forward-only: every existing fork keeps CC BY-NC 4.0 permanently.
+- **`tests/e2e/networking.spec.ts`** — automated guards for two real incidents. Traefik recreated via the wrong compose file loses its `traefik-lan` macvlan and every `.lan` URL dies while the container reports healthy (2026-08-01); and Pi-hole's `${NAS_IP}`-pinned bindings silently fail to establish while its own healthcheck passes, because that healthcheck digs `127.0.0.1` from inside its netns (2026-08-05). Both look fine to `docker ps`.
+- **`tests/e2e/vpn-security.spec.ts`** — per-service egress comparison, plus a killswitch chaos test behind `ALLOW_DISRUPTIVE_TESTS=1`, and a regression guard that Sonarr/Radarr stay *off* the VPN.
+- **`scripts/detect-vpn-zombies.sh`** — detects containers bound to a Gluetun network namespace that no longer exists after a *recreate*. They stay healthy on their own localhost while being unreachable from the stack; `docker ps`, health status and deunhealth are all blind to it.
+- **`tests/hooks-installed.bats`** — asserts the pre-commit hook is installed, points at `scripts/pre-commit`, and is **executable** (git skips a non-executable hook silently).
+- **Tailscale exit node** (`--advertise-exit-node`) — lets a tailnet device route all its internet traffic via the NAS. Inert until approved in the admin console.
+
+### Changed
+- **Eleven image bumps.** cloudflared `2026.7.3`→`2026.8.2`, dnscrypt-proxy `2.1.16`→`2.1.18`, flaresolverr `v3.4.6`→`v3.5.0`, configarr `1.24.0`→`1.30.2`, bazarr `1.5.6`→`1.6.0`, prowlarr `2.3.0`→`2.5.2`, qBittorrent `5.1.4`→`5.2.3`, radarr `6.1.1`→`6.3.0`, sonarr `4.0.17`→`4.0.19`, tailscale `v1.98.10`→`v1.102.2`, and **SABnzbd `4.5.5`→`5.1.0` (major)**. All verified on the NAS: Radarr's DB migration clean with its library intact, qBittorrent's API and categories intact, and SABnzbd's news server, categories and paths compared against a snapshot taken *before* the bump — a healthy container proves nothing about a Usenet pipeline. Config volumes backed up first.
+- **`scripts/check-vpn.sh` rewritten.** It compared Gluetun's *public* exit IP against the NAS's *LAN* IP. A routable address and an RFC 1918 one can never be equal, so the leak branch could never fire and it printed "OK: VPN is active" unconditionally. It now measures the host's real egress via a bridge-only container and requires each tunneled service to match Gluetun **exactly** — merely differing from the host would also be true of a service escaping down a third route.
+- **The e2e suite is split by domain** — `ui-screenshots`, `api-assertions`, `networking`, `vpn-security`, sharing `helpers.ts`. Same 13 tests, verified by count.
+- **Documentation no longer uses the maintainer's real home network** as its worked example. `192.168.1.x`, a placeholder MAC and `nasadmin` throughout. Docker's `172.20.0.0/24` and `10.8.1.0/24` are untouched — they're internal ranges, not anyone's LAN.
+
+### Fixed
+- **The update checker reported 2 available updates when there were 11.** Three independent faults, each failing toward a false all-clear: GHCR was queried **without the bearer token it requires**, so the tag list came back empty for every `ghcr.io` and `lscr.io` image — most of the stack; a **failed lookup was cached as "current"**, turning one rate-limited run into a permanent false all-clear; and `lscr.io` was routed to GHCR, whose `tags/list` **cannot sort**, so linuxserver's constant nightly pushes crowded every stable tag out of the window. Tag selection is now a positive match on `^v?[0-9]+(\.[0-9]+)*$` rather than a denylist of shapes previously seen.
+- **Three checks that were quietly not checking.** `scripts/pre-commit` read `$?` *after* `fi` — that's the `if` statement's status, always 0 — so the env-var check never once blocked a commit. `setup-hooks.sh` tested `[[ -d .git ]]`, which is false in a worktree where `.git` is a file, so it exited "not a git repository" and installed nothing. `check-secrets.sh` flagged unquoted `PASSWORD=${VAR}` as a plaintext password.
+- **A CHANGELOG heading deleted by an earlier edit** — the `## [1.7.26]` heading was replaced rather than pushed down when 1.7.27 was inserted, so 1.7.26's entry was absorbed into 1.7.27 and the 5 August image bumps appeared to have shipped on the 15th. Content was never lost, only its attribution to a date.
+
+### Notes
+- Releases **1.7.25 – 1.7.28 were changelogged but never tagged**; this release includes them.
+- GitHub reports this repository as unlicensed. Its detector recognises thirteen licences and includes neither PolyForm nor any NonCommercial CC variant. Cosmetic — the licence files are what have legal effect.
+
 ## [1.7.28] - 2026-08-15
 
 ### Removed
