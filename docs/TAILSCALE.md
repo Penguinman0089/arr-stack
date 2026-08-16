@@ -55,10 +55,22 @@ The compose file also advertises the NAS as an **exit node** (`--advertise-exit-
 
 > ⚠️ **Most mobile OSes run only one VPN at a time.** On Android in particular, an always-on VPN app and Tailscale will kick each other off the system tunnel — including with that app's own split-tunnelling enabled, since that only decides which traffic uses an *already-active* tunnel, not whether two apps can hold the tunnel at once. Using the NAS as an exit node is meant to **replace** that other app on such devices, not run alongside it.
 
-If your NAS mounts sysctls read-only inside containers, you may need to set `net.ipv4.ip_forward` and `net.ipv6.conf.all.forwarding` on the host directly (`sysctl -w`, then persist in `/etc/sysctl.d/`). Check with:
+**Exit nodes need IP forwarding**, and the two protocols are separate. Subnet routing already working does *not* mean an exit node will — verified on a UGREEN NAS where `net.ipv4.ip_forward` was `1` (so `.lan` routing was fine) while `net.ipv6.conf.all.forwarding` was `0`. Approving `0.0.0.0/0` worked; `::/0` would have silently failed to forward.
+
+Check both, on the host and inside the container:
 
 ```bash
-docker exec tailscale tailscale status --json | grep -A2 Health
+cat /proc/sys/net/ipv4/ip_forward                      # want 1
+docker exec tailscale sh -c 'cat /proc/sys/net/ipv4/ip_forward; cat /proc/sys/net/ipv6/conf/all/forwarding'
+docker exec tailscale tailscale status --json | grep -i -A2 health
+```
+
+Tailscale reports this as *"Subnet routing is enabled, but IP forwarding is disabled"* — which reads as though subnet routing is broken when it may only be the IPv6 half that's missing. If you need IPv6, enable it on the host (`sysctl -w net.ipv6.conf.all.forwarding=1`, then persist in `/etc/sysctl.d/`); if you're IPv4-only, approve just `0.0.0.0/0` and ignore the warning.
+
+Confirm the node is actually being offered once approved — `ExitNodeOption` stays `false` until then:
+
+```bash
+docker exec tailscale tailscale status --json | grep -i exitnodeoption
 ```
 
 ## 4. Install Tailscale on your devices
