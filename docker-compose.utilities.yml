@@ -8,12 +8,23 @@
 #########################
 # Volumes               #
 #########################
+# Pinned to their existing physical names for the same reason as the volumes
+# in docker-compose.arr-stack.yml — see the long comment there. Short version:
+# without `name:`, the physical volume is named after the deploy directory,
+# so renaming that directory silently swaps in empty volumes rather than
+# failing. These carry the Uptime Kuma history, Beszel metrics and diun's
+# seen-tags DB, all of which are annoying to lose and easy to lose silently.
 volumes:
   duc-index:
+    name: arr-stack_duc-index
   uptime-kuma-data:
+    name: arr-stack_uptime-kuma-data
   beszel-data:
+    name: arr-stack_beszel-data
   diun-data:
+    name: arr-stack_diun-data
   configarr-repos:
+    name: arr-stack_configarr-repos
 
 #########################
 # Networks              #
