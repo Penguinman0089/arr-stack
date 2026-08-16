@@ -1,5 +1,13 @@
 import { test, expect } from '@playwright/test';
-import { STACK_IS_LOCAL, TUNNELED_SERVICES, BRIDGE_SERVICES, egressIp } from './helpers';
+import {
+  DOCKER_TRANSPORT,
+  requireStackReachable,
+  TUNNELED_SERVICES,
+  BRIDGE_SERVICES,
+  egressIp,
+  dockerInspect,
+  dockerLifecycle,
+} from './helpers';
 
 //
 // LICENCE: this file remains under CC BY-NC 4.0 (LICENSE-docs), NOT the
@@ -18,13 +26,24 @@ import { STACK_IS_LOCAL, TUNNELED_SERVICES, BRIDGE_SERVICES, egressIp } from './
 // actual egress IPs, which is the only thing that distinguishes "tunneled"
 // from "leaking".
 //
-// They need local `docker exec`, so they run on the NAS and skip elsewhere.
+// They drive `docker exec` against whichever daemon owns the stack — this
+// machine's if the containers are here, otherwise the NAS's over SSH (see
+// helpers.ts DOCKER_TRANSPORT). They used to require the containers to be
+// local, which meant they skipped on every dev machine while the suite still
+// exited 0 — a green run that had checked nothing about the VPN.
+//
 // This is the automated counterpart to scripts/check-vpn.sh; the two implement
 // the same comparison and should be kept in step.
 
 test.describe('VPN egress — leak detection', () => {
+  test.beforeAll(() => {
+    // Surface the transport once, so a run that reaches the NAS over SSH is
+    // visibly different from one that quietly checked nothing.
+    console.log(`  [vpn-security] docker transport: ${DOCKER_TRANSPORT}`);
+  });
+
   test.beforeEach(() => {
-    test.skip(!STACK_IS_LOCAL, 'stack containers not on this docker socket — run on the NAS directly');
+    requireStackReachable(test.skip);
   });
 
   test("Gluetun's exit IP differs from the NAS's own WAN IP", () => {
@@ -66,36 +85,35 @@ test.describe('VPN egress — leak detection', () => {
 
 test.describe('VPN killswitch', () => {
   test('stopping Gluetun blocks qBittorrent egress rather than leaking via a fallback route', async () => {
-    test.skip(!STACK_IS_LOCAL, 'stack containers not on this docker socket — run on the NAS directly');
+    requireStackReachable(test.skip);
     test.skip(
       process.env.ALLOW_DISRUPTIVE_TESTS !== '1',
       'set ALLOW_DISRUPTIVE_TESTS=1 to run — it stops the live Gluetun container, interrupting real downloads and searches',
     );
-    test.setTimeout(90_000);
+    test.setTimeout(120_000);
 
-    const { execFileSync } = await import('node:child_process');
     const hostIp = egressIp('sonarr');
     expect(hostIp).toBeTruthy();
 
     try {
-      execFileSync('docker', ['stop', 'gluetun'], { timeout: 30_000 });
+      dockerLifecycle('stop', 'gluetun');
 
       // A working killswitch means the request FAILS outright. Getting hostIp
       // back here would mean traffic fell through to the NAS's own route —
       // which is precisely the leak this guards against.
       expect(egressIp('qbittorrent')).toBeNull();
     } finally {
-      execFileSync('docker', ['start', 'gluetun'], { timeout: 30_000 });
+      dockerLifecycle('start', 'gluetun');
 
       // Always leave the stack working, even if the assertion above failed.
-      const deadline = Date.now() + 60_000;
+      const deadline = Date.now() + 90_000;
       let healthy = false;
       while (Date.now() < deadline) {
         try {
-          const status = execFileSync(
-            'docker', ['inspect', '--format', '{{.State.Health.Status}}', 'gluetun'], { encoding: 'utf8' },
-          ).trim();
-          if (status === 'healthy') { healthy = true; break; }
+          if (dockerInspect('gluetun', '{{.State.Health.Status}}') === 'healthy') {
+            healthy = true;
+            break;
+          }
         } catch {
           // keep polling
         }

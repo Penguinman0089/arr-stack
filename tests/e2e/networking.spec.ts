@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { test, expect } from '@playwright/test';
-import { HOST, STACK_IS_LOCAL, dockerInspect } from './helpers';
+import { HOST, requireStackReachable, dockerInspect } from './helpers';
 
 //
 // LICENCE: this file remains under CC BY-NC 4.0 (LICENSE-docs), NOT the
@@ -75,7 +75,7 @@ test.describe('Pi-hole port publication', () => {
     // container's whole mapping set, which is why the web UI on 8081 went too.
     //
     // Only the actual port mapping shows this.
-    test.skip(!STACK_IS_LOCAL, 'stack containers not on this docker socket — run on the NAS directly');
+    requireStackReachable(test.skip);
 
     const ports = JSON.parse(dockerInspect('pihole', '{{json .NetworkSettings.Ports}}')) as Record<string, unknown>;
 
