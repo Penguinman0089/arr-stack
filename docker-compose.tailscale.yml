@@ -70,5 +70,11 @@ services:
         max-size: "10m"
         max-file: "3"
 
+# Pinned like the volumes in docker-compose.arr-stack.yml. This file does set
+# an explicit `name: tailscale` above, so it is already safe from a deploy
+# directory rename — but not from someone editing that `name:` value, which
+# would silently point this at a fresh empty volume and de-authenticate the
+# node (losing the machine's Tailscale identity and its exit-node approval).
 volumes:
   tailscale-state:
+    name: tailscale_tailscale-state

@@ -10,19 +10,47 @@
 #########################
 # Centralized Volumes   #
 #########################
+# The explicit `name:` on every volume pins it to the physical volume that
+# already exists. Do not remove them, and do not "tidy" them to match a new
+# project name.
+#
+# A volume declared without `name:` is scoped by the Compose project name,
+# which — with no `name:` key at the top of this file — is derived from the
+# directory the stack is deployed in. So the physical volumes are called
+# arr-stack_<volume>, purely because the deploy directory happens to be
+# named arr-stack.
+#
+# That makes the project name load-bearing for data. Rename the deploy
+# directory, or add a `name:` key to this file, and Compose does not error
+# and does not warn — it silently creates a brand-new EMPTY volume and
+# starts the container against it. Every service comes up "healthy" with
+# its config gone. Pinning the names here decouples the data from the
+# directory, so a rename is survivable.
 volumes:
   gluetun-config:
+    name: arr-stack_gluetun-config
   qbittorrent-config:
+    name: arr-stack_qbittorrent-config
   sabnzbd-config:
+    name: arr-stack_sabnzbd-config
   sonarr-config:
+    name: arr-stack_sonarr-config
   prowlarr-config:
+    name: arr-stack_prowlarr-config
   radarr-config:
+    name: arr-stack_radarr-config
   jellyfin-config:
+    name: arr-stack_jellyfin-config
   jellyfin-cache:
+    name: arr-stack_jellyfin-cache
   seerr-config:
+    name: arr-stack_seerr-config
   bazarr-config:
+    name: arr-stack_bazarr-config
   dnscrypt-config:
+    name: arr-stack_dnscrypt-config
   pihole-etc-pihole:
+    name: arr-stack_pihole-etc-pihole
 
 #########################
 # Networks              #
