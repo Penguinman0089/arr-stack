@@ -1,30 +1,37 @@
 # TODO: When Home
 
-## 1. Relicense the code to PolyForm Noncommercial — WAITING ON ONE REPLY
+## 1. Convert four files to PolyForm — WAITING ON ONE REPLY
 
-**Blocked on:** [@leonardoazeredo](https://github.com/leonardoazeredo) replying to
-[#20](https://github.com/Pharkie/ultimate-arr-stack/issues/20). @gncnpk has already agreed.
+**The relicence is DONE except for these**, implemented 2026-08-16:
 
-**Why:** Creative Commons explicitly recommend against CC licences for software — no patent
-grant, no source provisions, and "NonCommercial" is loosely defined.
-[PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0/) is the
-same posture, drafted for code. Docs would stay CC BY-NC 4.0, which is what CC is good at.
+- `LICENSE-code` — PolyForm Noncommercial 1.0.0, covering code
+- `LICENSE-docs` — CC BY-NC 4.0, covering prose
+- `LICENSE` — the index explaining which applies where
 
-**Why it needs their agreement, not just mine:** they each hold copyright in their own
-contributions, licensed to this project under CC BY-NC 4.0. 60 of @gncnpk's lines are still live
-(31 in `docker-compose.arr-stack.yml`, 29 in `scripts/configure-apps.sh`), and
-@leonardoazeredo's test and script work was upstreamed on 2026-08-15. @eren-kemer needs no
-agreement — `git blame` shows zero surviving lines from PR #6.
+**Still on CC BY-NC 4.0, pending permission:**
 
-**When the reply lands:**
-- `LICENSE` → PolyForm Noncommercial 1.0.0 for code
-- add `LICENSE-docs` → CC BY-NC 4.0, and point the README's License section at both
-- note in the README that the change is **forward-only**: the 122 existing forks keep their
-  CC BY-NC copies permanently
+- `tests/e2e/networking.spec.ts`
+- `tests/e2e/vpn-security.spec.ts`
+- `tests/e2e/helpers.ts`
+- `scripts/detect-vpn-zombies.sh`
 
-**If they decline:** nothing breaks. Everything stays CC BY-NC 4.0, which is already properly
-stated in `LICENSE` as of 2026-08-15.
+They're adapted from [@leonardoazeredo](https://github.com/leonardoazeredo)'s
+fork and were contributed under CC BY-NC 4.0. Relicensing another author's
+copyright without asking isn't ours to do. Asked in
+[#20](https://github.com/Pharkie/ultimate-arr-stack/issues/20);
+[@gncnpk](https://github.com/gncnpk) agreed on 2026-08-15,
+[@eren-kemer](https://github.com/eren-kemer) needed no agreement (zero
+surviving lines by `git blame`).
 
-> GitHub's licence detector recognises only 13 licences and includes neither CC BY-NC nor
-> PolyForm, so the sidebar will keep saying "no licence" either way. That's cosmetic — the
-> `LICENSE` file is what has legal effect.
+**When they agree:** delete the `LICENCE:` header block from each of the four
+files, drop the "Four files" section from `LICENSE`, and drop the corresponding
+paragraph from the README. Nothing else changes.
+
+**If they never reply:** leave it exactly as it is. Per-file dual licensing is
+legitimate and these four are self-contained test and script files, not
+anything woven into the core compose. Nothing is blocked by this.
+
+**If they decline:** same as never replying. No action.
+
+> Nudge worth sending if there's no reply by roughly mid-September 2026 — an
+> unsolicited GitHub ask is easy to miss, and silence is not refusal.

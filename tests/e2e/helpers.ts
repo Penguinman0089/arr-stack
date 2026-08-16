@@ -1,3 +1,10 @@
+//
+// LICENCE: this file remains under CC BY-NC 4.0 (LICENSE-docs), NOT the
+// PolyForm Noncommercial licence covering the rest of this repo's code. It is
+// adapted from leonardoazeredo/ultimate-arr-stack and was contributed under
+// CC BY-NC 4.0; relicensing it needs that author's agreement, requested in
+// issue #20. See LICENSE.
+//
 // The docker-exec helpers below are adapted from
 // leonardoazeredo/ultimate-arr-stack, a downstream fork of this repo, published
 // under this repo's CC BY-NC 4.0 notice. Changed here: the off-NAS gate probes
