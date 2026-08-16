@@ -43,6 +43,24 @@ Three one-time settings at [login.tailscale.com/admin](https://login.tailscale.c
 
 > **Why split DNS?** Tailscale doesn't override your device's normal DNS unless you tell it to (we set `TS_ACCEPT_DNS=false`). The split-DNS rule says "only for `.lan` queries, ask Pi-hole" — everything else keeps using the device's normal resolver.
 
+### Optional: use the NAS as an exit node
+
+The compose file also advertises the NAS as an **exit node** (`--advertise-exit-node`), which lets a device send *all* its internet traffic through your home connection rather than just LAN traffic. Useful if you'd rather Tailscale be your "encrypt my traffic on untrusted WiFi" VPN than run a second always-on VPN app.
+
+**Advertising it does nothing on its own** — like the subnet route, it stays inert until approved.
+
+**Approve it** (same *Machines* page as the subnet route): click your NAS → *Edit route settings* → under *Exit node*, tick both `0.0.0.0/0` and `::/0` → Save.
+
+**Then enable it per-device**, in that device's Tailscale app settings.
+
+> ⚠️ **Most mobile OSes run only one VPN at a time.** On Android in particular, an always-on VPN app and Tailscale will kick each other off the system tunnel — including with that app's own split-tunnelling enabled, since that only decides which traffic uses an *already-active* tunnel, not whether two apps can hold the tunnel at once. Using the NAS as an exit node is meant to **replace** that other app on such devices, not run alongside it.
+
+If your NAS mounts sysctls read-only inside containers, you may need to set `net.ipv4.ip_forward` and `net.ipv6.conf.all.forwarding` on the host directly (`sysctl -w`, then persist in `/etc/sysctl.d/`). Check with:
+
+```bash
+docker exec tailscale tailscale status --json | grep -A2 Health
+```
+
 ## 4. Install Tailscale on your devices
 
 - **iOS/Android**: install the Tailscale app, sign in with the same account
