@@ -55,7 +55,7 @@ RADARR_API_KEY=""
 PROWLARR_API_KEY=""
 BAZARR_API_KEY=""
 SABNZBD_API_KEY=""
-QBIT_USERNAME="${QBIT_USERNAME:-admin}"
+QBIT_USERNAME="${QBIT_USERNAME:-}"
 QBIT_PASSWORD="${QBIT_PASSWORD:-}"
 
 # ============================================
@@ -187,6 +187,19 @@ if $SABNZBD_RUNNING; then
         info "SABnzbd API key: ${SABNZBD_API_KEY:0:8}..."
     fi
 fi
+
+# qBittorrent username: env var → .env file → "admin"
+#
+# .env stores this as QBIT_USER, which is why the username needs its own
+# lookup rather than riding on the password's: before this, the script only
+# ever read the QBIT_USERNAME env var and otherwise assumed "admin", so any
+# deployment that renamed the qBittorrent account failed to authenticate
+# even though the password resolved from .env perfectly well.
+# QBIT_USERNAME is accepted from .env too, so either spelling works.
+if [[ -z "$QBIT_USERNAME" && -f .env ]]; then
+    QBIT_USERNAME=$(grep -E '^QBIT_(USER|USERNAME)=' .env 2>/dev/null | head -1 | cut -d= -f2- || true)
+fi
+QBIT_USERNAME="${QBIT_USERNAME:-admin}"
 
 # qBittorrent password: env var → .env file → docker logs temp password
 if [[ -z "$QBIT_PASSWORD" && -f .env ]]; then
