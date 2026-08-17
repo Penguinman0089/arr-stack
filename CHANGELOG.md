@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+Three fixes, and the theme from 1.8.0 continues: **two of them were checks that ran, reported success or failure confidently, and were structurally incapable of being right.**
+
+### Added
+- **Dolby Vision profile scoring for Sonarr and Radarr** — `DV (Profile 5)` at `-1000` and `DV HDR10 (Profile 8.1)` at `+500`, applied by `configure-apps.sh` to both services and documented for manual setup in `docs/APP-CONFIG.md`. Profile 5 encodes its base layer as IPT-PQ-C2, which is meaningless unless the player applies the Dolby Vision RPU, and it carries no HDR10 fallback. A Profile 5 grab of Ted Lasso S04E02 played on the Fire TV as a sharp picture with a green/magenta cast for the entire episode — the file had no colour metadata, no HDR10 static metadata and **no Dolby Vision configuration record in the MKV at all**, so nothing downstream was even told it was Dolby Vision. Sonarr had 34 custom formats and none that could tell Profile 5 from 8.1, so every candidate scored 0 and the unplayable file won on resolution alone. Disc sources are deliberately excluded from the penalty: UHD Blu-ray Dolby Vision is **Profile 7**, whose base layer *is* HDR10-compatible, and an earlier pass of the matcher flagged two Blu-ray remuxes that it would have traded away for worse WEB rips.
+- **`ensure_custom_format`** in `scripts/lib/configure-helpers.sh` — create-if-absent plus score-in-every-profile, idempotent on both halves. `Reject ISO` moved onto it rather than growing a third copy of fifty near-identical lines.
+
+### Fixed
+- **`configure-apps.sh` reported "qBittorrent: authentication failed" on every run, while the credentials were fine.** Two faults stacked. The username was defaulted to `admin` at declaration and never read from `.env`, which stores it as `QBIT_USER` — so it was never empty and no lookup could have run even had one existed. And with `WebUI\AuthSubnetWhitelist` covering the NAS's own subnet, qBittorrent skips the login for local callers and answers `204 No Content` with an empty body, where the check demanded `200` and `"Ok."`. Widening it to accept `204` alone would have produced a check that **cannot fail** — a deliberately wrong password returns `204` too, and `/api/v2/app/version` returns `200` with no cookie at all. The login is now followed by a real API call through the cookie jar, which fails closed against a dead port or the wrong service.
+- **Bazarr's Sonarr/Radarr connection step reconfigured itself and restarted the container on every run**, contradicting the script's documented "safe to re-run". Bazarr only accepts flat form keys at `/api/system/settings`; a nested JSON body is answered `204` and then silently discarded — so the step reported success, wrote nothing, and did it again next time. `bazarr_settings_post` now sends flat keys, and the `406` that a bad value returns is the evidence the request reaches Bazarr's validator at all.
+
 ## [1.8.0] - 2026-08-16
 
 A large batch. Two themes: **this repo stopped carrying things that weren't a media stack**, and **several checks turned out to be blind** — running, reporting success, and structurally unable to see the failure they existed for.
