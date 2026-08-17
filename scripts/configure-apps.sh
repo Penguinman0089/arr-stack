@@ -504,12 +504,34 @@ print(' '.join(diff) if diff else 'MATCH')")
     fi
 
     # --- Subtitle sync (ffsubsync) ---
-    if json_extract "$settings" "sys.exit(0 if data.get('subsync', {}).get('use_subsync') else 1)"; then
+    #
+    # Compares every field it writes, not just use_subsync: with only the enable
+    # flag checked, a threshold edited by hand read as "already configured".
+    local subsync_state
+    subsync_state=$(json_extract "$settings" "
+want = {
+    'use_subsync': True,
+    'use_subsync_threshold': True,
+    'subsync_threshold': 90,
+    'use_subsync_movie_threshold': True,
+    'subsync_movie_threshold': 70,
+}
+current = data.get('subsync', {})
+diff = [k for k, v in sorted(want.items()) if current.get(k) != v]
+print(' '.join(diff) if diff else 'MATCH')")
+
+    if [[ -z "$subsync_state" ]]; then
+        fail "Bazarr: could not compare subtitle sync settings"
+    elif [[ "$subsync_state" == "MATCH" ]]; then
         skip "Bazarr: subtitle sync"
     else
-        local subsync_payload='{"subsync": {"use_subsync": true, "use_subsync_threshold": true, "subsync_threshold": 90, "use_subsync_movie_threshold": true, "subsync_movie_threshold": 70}}'
-        if api_post "${BASE}/api/system/settings" "application/json" "$subsync_payload" "$AUTH" >/dev/null 2>&1; then
-            ok "Bazarr: enabled subtitle sync (thresholds: series 90, movies 70)"
+        if bazarr_settings_post "$BASE" "$AUTH" \
+            "settings-subsync-use_subsync=true" \
+            "settings-subsync-use_subsync_threshold=true" \
+            "settings-subsync-subsync_threshold=90" \
+            "settings-subsync-use_subsync_movie_threshold=true" \
+            "settings-subsync-subsync_movie_threshold=70"; then
+            ok "Bazarr: enabled subtitle sync, thresholds series 90 / movies 70 (${subsync_state})"
             needs_restart=true
         else
             fail "Bazarr: enable subtitle sync"
@@ -517,14 +539,46 @@ print(' '.join(diff) if diff else 'MATCH')")
     fi
 
     # --- Sub-Zero content modifications ---
-    if json_extract "$settings" "
-mods = data.get('general', {}).get('subzero_mods', [])
-sys.exit(0 if 'remove_tags' in mods and 'OCR_fixes' in mods else 1)"; then
+    #
+    # These do not go through "settings-general-subzero_mods" at all. That key
+    # is unwritable: Bazarr stores subzero_mods as a comma-separated string
+    # (Validator(..., is_type_of=str)) but also lists it in array_keys, so the
+    # form parser hands the validator a list and every value is rejected 406,
+    # "must is_type_of <class 'str'>". Repeated keys and a comma-separated
+    # string both fail the same way — verified on the NAS 2026-08-17.
+    #
+    # Mods are toggled one at a time through a separate "subzero-<mod>" key
+    # space instead (app/config.py, settings_keys[0] == 'subzero'), where a
+    # truthy value adds the mod and an empty value removes it. Note that
+    # "false" is a truthy string in Python and would therefore ADD the mod —
+    # removal needs a genuinely empty value.
+    #
+    # Only the missing mods are sent, because Bazarr appends with no membership
+    # check: re-sending an already-enabled mod stores it twice (confirmed —
+    # a second subzero-emoji=true produced [... 'emoji', 'emoji']).
+    #
+    # Mods beyond this set are left alone rather than stripped. Removing one a
+    # user enabled by hand would put the live config permanently at odds with
+    # the script, which is exactly the write-every-run restart loop this is
+    # meant to end.
+    local subzero_missing
+    subzero_missing=$(json_extract "$settings" "
+want = ['remove_tags', 'emoji', 'OCR_fixes', 'common', 'fix_uppercase']
+current = data.get('general', {}).get('subzero_mods', [])
+missing = [m for m in want if m not in current]
+print(' '.join(missing) if missing else 'MATCH')")
+
+    if [[ -z "$subzero_missing" ]]; then
+        fail "Bazarr: could not compare Sub-Zero content modifications"
+    elif [[ "$subzero_missing" == "MATCH" ]]; then
         skip "Bazarr: Sub-Zero content modifications"
     else
-        local subzero_payload='{"general": {"subzero_mods": ["remove_tags", "emoji", "OCR_fixes", "common", "fix_uppercase"]}}'
-        if api_post "${BASE}/api/system/settings" "application/json" "$subzero_payload" "$AUTH" >/dev/null 2>&1; then
-            ok "Bazarr: enabled Sub-Zero mods (tags, emoji, OCR, common, uppercase)"
+        local subzero_keys=() mod
+        for mod in $subzero_missing; do
+            subzero_keys+=("subzero-${mod}=true")
+        done
+        if bazarr_settings_post "$BASE" "$AUTH" "${subzero_keys[@]}"; then
+            ok "Bazarr: enabled Sub-Zero mods (${subzero_missing})"
             needs_restart=true
         else
             fail "Bazarr: enable Sub-Zero mods"
@@ -532,12 +586,33 @@ sys.exit(0 if 'remove_tags' in mods and 'OCR_fixes' in mods else 1)"; then
     fi
 
     # --- Default subtitle language (English) ---
-    if json_extract "$settings" "sys.exit(0 if data.get('general', {}).get('serie_default_enabled') else 1)"; then
+    #
+    # Profile 1 is the English language profile. Checking only
+    # serie_default_enabled left the movie half, and both profile ids,
+    # unverified — all three could be wrong and still report "configured".
+    local lang_state
+    lang_state=$(json_extract "$settings" "
+want = {
+    'serie_default_enabled': True,
+    'serie_default_profile': 1,
+    'movie_default_enabled': True,
+    'movie_default_profile': 1,
+}
+current = data.get('general', {})
+diff = [k for k, v in sorted(want.items()) if current.get(k) != v]
+print(' '.join(diff) if diff else 'MATCH')")
+
+    if [[ -z "$lang_state" ]]; then
+        fail "Bazarr: could not compare default subtitle language settings"
+    elif [[ "$lang_state" == "MATCH" ]]; then
         skip "Bazarr: default subtitle language"
     else
-        local lang_payload='{"general": {"serie_default_enabled": true, "serie_default_profile": 1, "movie_default_enabled": true, "movie_default_profile": 1}}'
-        if api_post "${BASE}/api/system/settings" "application/json" "$lang_payload" "$AUTH" >/dev/null 2>&1; then
-            ok "Bazarr: set default subtitle language to English"
+        if bazarr_settings_post "$BASE" "$AUTH" \
+            "settings-general-serie_default_enabled=true" \
+            "settings-general-serie_default_profile=1" \
+            "settings-general-movie_default_enabled=true" \
+            "settings-general-movie_default_profile=1"; then
+            ok "Bazarr: set default subtitle language to English (${lang_state})"
             needs_restart=true
         else
             fail "Bazarr: set default subtitle language"
