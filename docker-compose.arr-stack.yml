@@ -226,7 +226,7 @@ services:
   # Runs on the arr-stack bridge (own IP 172.20.0.10), NOT behind the VPN:
   # Sonarr only talks to metadata providers (TVDB/TMDB) + internal services,
   # never to indexers/peers, so it needs no VPN. Staying on the bridge means a
-  # gluetun/VPN reconnect no longer cuts Sonarr off from Jellyseerr/Bazarr.
+  # gluetun/VPN reconnect no longer cuts Sonarr off from Seerr/Bazarr.
   # It reaches the VPN-side download clients via the `gluetun` hostname.
   # ═══════════════════════════════════════════════════════════════════════════
   sonarr:
