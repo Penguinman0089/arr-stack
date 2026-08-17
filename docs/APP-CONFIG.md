@@ -163,6 +163,23 @@ Searches for TV shows, sends download links to qBittorrent/SABnzbd, and organize
    - Add condition: Release Title, value `\.iso$`, check **Regex**
    - Settings → Profiles → your quality profile → set `Reject ISO` to `-10000`
 
+8. **Refuse Dolby Vision Profile 5:** Profile 5 has no HDR10 fallback — its base layer is IPT-PQ, which is meaningless unless the player applies the Dolby Vision metadata. Players that don't (the Jellyfin Android TV client among them) show a sharp picture with a green/magenta cast for the whole episode. Profile 8.1 carries a standard HDR10 base layer and plays correctly anywhere.
+
+   Release titles are the only signal available here — custom formats can't inspect the Dolby Vision configuration record — but they're a reliable one: `DV` alone means Profile 5, `DV HDR` or `DoVi HDR` means 8.1.
+
+   - Settings → Custom Formats → + → Name: `DV (Profile 5)` — check **Regex** and **Required** on all three conditions:
+     - Release Title: `\b(dv|dovi|dolby[ .\-_]?vision)\b`
+     - Release Title: `\bhdr|\bhlg\b|\bpq\b` — also check **Negate**
+     - Release Title: `\b(blu-?ray|remux|bdrip|bdremux)\b` — also check **Negate**
+   - Settings → Custom Formats → + → Name: `DV HDR10 (Profile 8.1)` — **Regex** and **Required** on both:
+     - Release Title: `\b(dv|dovi|dolby[ .\-_]?vision)\b`
+     - Release Title: `\bhdr|\bhlg\b|\bpq\b`
+   - Settings → Profiles → your quality profile → `DV (Profile 5)` = `-1000`, `DV HDR10 (Profile 8.1)` = `500`
+
+   > The disc-source exclusion is deliberate. UHD Blu-ray Dolby Vision is **Profile 7**, whose base layer *is* HDR10-compatible, so penalising it would trade good remuxes for worse WEB rips.
+   >
+   > With **Minimum Custom Format Score** left at `0`, the `-1000` makes Profile 5 a reject rather than a preference — the next-best release is taken instead. If you'd rather rank it down without refusing it outright, lower the profile's minimum score below `-1000`.
+
 ## 4.5 Radarr (Movies)
 
 Searches for movies, sends download links to qBittorrent/SABnzbd, and organizes completed files.
@@ -200,6 +217,8 @@ Searches for movies, sends download links to qBittorrent/SABnzbd, and organizes 
    - Settings → Custom Formats → + → Name: `Reject ISO`
    - Add condition: Release Title, value `\.iso$`, check **Regex**
    - Settings → Profiles → your quality profile → set `Reject ISO` to `-10000`
+
+8. **Refuse Dolby Vision Profile 5:** same two custom formats and scores as [Sonarr step 8](#44-sonarr-tv-shows) — Radarr needs them independently, and the disc-source exclusion matters more here, since UHD Blu-ray remuxes are Profile 7 and must not be penalised.
 
 ### Prefer Usenet over Torrents (Optional)
 
