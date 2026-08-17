@@ -129,6 +129,72 @@ qbit_auth() {
 }
 
 # ============================================
+# Custom formats
+# ============================================
+
+# Ensure a custom format exists and is scored in every quality profile.
+#
+# Usage:
+#   ensure_custom_format "$BASE" "$AUTH" "Sonarr" "Reject ISO" -10000 "$specs_json"
+#
+# Idempotent on both halves: the format is created only when absent, and a
+# quality profile is only PUT when its score for that format is missing or
+# wrong. Existing specifications are left alone — if you change a regex here,
+# update it in the running service too, or repo and live silently diverge.
+ensure_custom_format() {
+    local BASE="$1" AUTH="$2" name="$3" cf_name="$4" cf_score="$5" cf_specs="$6"
+
+    local formats cf_id
+    formats=$(api_get "${BASE}/api/v3/customformat" "$AUTH") || true
+    cf_id=$(json_extract "$formats" "
+ids = [c['id'] for c in data if c.get('name') == '''${cf_name}''']
+print(ids[0] if ids else '')")
+
+    if [[ -n "$cf_id" ]]; then
+        skip "${name}: ${cf_name} custom format"
+    else
+        local cf_payload cf_result
+        cf_payload="{\"name\":\"${cf_name}\",\"includeCustomFormatWhenRenaming\":false,\"specifications\":${cf_specs}}"
+        cf_result=$(api_post "${BASE}/api/v3/customformat" "application/json" "$cf_payload" "$AUTH") || true
+        cf_id=$(json_extract "$cf_result" "print(data.get('id', ''))")
+        if [[ -n "$cf_id" ]]; then
+            ok "${name}: added ${cf_name} custom format"
+        else
+            fail "${name}: add ${cf_name} custom format"
+            return
+        fi
+    fi
+
+    local profiles profile_ids
+    profiles=$(api_get "${BASE}/api/v3/qualityprofile" "$AUTH") || true
+    profile_ids=$(json_extract "$profiles" "
+for p in data:
+    print(p['id'])")
+
+    local pid profile updated_profile
+    for pid in $profile_ids; do
+        profile=$(api_get "${BASE}/api/v3/qualityprofile/${pid}" "$AUTH") || continue
+        # Skip if already scored correctly
+        if json_extract "$profile" "
+items = data.get('formatItems', [])
+match = [i for i in items if i.get('format') == ${cf_id}]
+sys.exit(0 if match and match[0].get('score') == ${cf_score} else 1)"; then
+            continue
+        fi
+        updated_profile=$(json_extract "$profile" "
+items = [i for i in data.get('formatItems', []) if i.get('format') != ${cf_id}]
+items.insert(0, {'format': ${cf_id}, 'name': '''${cf_name}''', 'score': ${cf_score}})
+data['formatItems'] = items
+print(json.dumps(data))")
+        if api_put "${BASE}/api/v3/qualityprofile/${pid}" "application/json" "$updated_profile" "$AUTH" >/dev/null 2>&1; then
+            ok "${name}: scored ${cf_name} at ${cf_score} in profile ${pid}"
+        else
+            fail "${name}: score ${cf_name} in profile ${pid}"
+        fi
+    done
+}
+
+# ============================================
 # Shared Sonarr/Radarr configuration
 # ============================================
 
@@ -188,6 +254,10 @@ configure_arr_service() {
         dry "Set TRaSH naming scheme"
         dry "Add Reject ISO custom format"
         dry "Score Reject ISO at -10000 in quality profiles"
+        dry "Add DV (Profile 5) custom format"
+        dry "Score DV (Profile 5) at -1000 in quality profiles"
+        dry "Add DV HDR10 (Profile 8.1) custom format"
+        dry "Score DV HDR10 (Profile 8.1) at 500 in quality profiles"
         if $SABNZBD_RUNNING; then dry "Add delay profile (Usenet 0, Torrent 30)"; fi
         return
     fi
@@ -315,59 +385,36 @@ print(str(xbmc[0].get('enable', False)).lower() if xbmc else 'false')")
     fi
 
     # --- Custom Format: Reject ISO ---
-    local formats
-    formats=$(api_get "${BASE}/api/v3/customformat" "$AUTH") || true
-    local iso_cf_id=""
-    if json_extract "$formats" "sys.exit(0 if any(c.get('name') == 'Reject ISO' for c in data) else 1)"; then
-        skip "${name}: Reject ISO custom format"
-        iso_cf_id=$(json_extract "$formats" "
-cfs = [c['id'] for c in data if c.get('name') == 'Reject ISO']
-print(cfs[0] if cfs else '')")
-    else
-        local cf_payload='{"name":"Reject ISO","includeCustomFormatWhenRenaming":false,"specifications":[{"name":"ISO","implementation":"ReleaseTitleSpecification","negate":false,"required":true,"fields":[{"name":"value","value":"\\.iso$"}]}]}'
-        local cf_result
-        cf_result=$(api_post "${BASE}/api/v3/customformat" "application/json" "$cf_payload" "$AUTH") || true
-        iso_cf_id=$(json_extract "$cf_result" "print(data.get('id', ''))")
-        if [[ -n "$iso_cf_id" ]]; then
-            ok "${name}: added Reject ISO custom format"
-        else
-            fail "${name}: add Reject ISO custom format"
-        fi
-    fi
+    ensure_custom_format "$BASE" "$AUTH" "$name" "Reject ISO" -10000 \
+        '[{"name":"ISO","implementation":"ReleaseTitleSpecification","negate":false,"required":true,"fields":[{"name":"value","value":"\\.iso$"}]}]'
 
-    # --- Score Reject ISO in quality profiles ---
-    if [[ -n "$iso_cf_id" ]]; then
-        local profiles
-        profiles=$(api_get "${BASE}/api/v3/qualityprofile" "$AUTH") || true
-        local profile_ids
-        profile_ids=$(json_extract "$profiles" "
-for p in data:
-    print(p['id'])")
-        for pid in $profile_ids; do
-            local profile
-            profile=$(api_get "${BASE}/api/v3/qualityprofile/${pid}" "$AUTH") || continue
-            # Skip if already scored correctly
-            if json_extract "$profile" "
-items = data.get('formatItems', [])
-match = [i for i in items if i.get('format') == ${iso_cf_id}]
-sys.exit(0 if match and match[0].get('score') == -10000 else 1)"; then
-                continue
-            fi
-            # Add or update the custom format score
-            local updated_profile
-            updated_profile=$(json_extract "$profile" "
-items = data.get('formatItems', [])
-items = [i for i in items if i.get('format') != ${iso_cf_id}]
-items.insert(0, {'format': ${iso_cf_id}, 'name': 'Reject ISO', 'score': -10000})
-data['formatItems'] = items
-print(json.dumps(data))")
-            if api_put "${BASE}/api/v3/qualityprofile/${pid}" "application/json" "$updated_profile" "$AUTH" >/dev/null 2>&1; then
-                ok "${name}: scored Reject ISO at -10000 in profile ${pid}"
-            else
-                fail "${name}: score Reject ISO in profile ${pid}"
-            fi
-        done
-    fi
+    # --- Custom Formats: Dolby Vision profile handling ---
+    #
+    # Profile 5 encodes its base layer as IPT-PQ-C2, which is meaningless
+    # unless a player applies the Dolby Vision RPU. Players that don't (the
+    # Jellyfin Android TV client among them) render it with a green/magenta
+    # cast — sharp picture, badly wrong colour. Profile 8.1 carries a standard
+    # HDR10 base layer, so it degrades cleanly on any HDR10 display.
+    #
+    # Release titles are the only signal available here: *arr custom formats
+    # cannot inspect the Dolby Vision configuration record. "DV" with no HDR
+    # token means Profile 5; "DV" plus an HDR token means 8.1. Disc sources are
+    # excluded from the penalty because UHD Blu-ray Dolby Vision is Profile 7,
+    # whose base layer is HDR10-compatible — penalising those would trade good
+    # remuxes for worse WEB rips.
+    #
+    # With minFormatScore at 0 the -1000 is a functional reject, not just a
+    # preference: Profile 5 releases are refused and the next-best release is
+    # taken instead.
+    local dv_token='{"name":"Dolby Vision","implementation":"ReleaseTitleSpecification","negate":false,"required":true,"fields":[{"name":"value","value":"\\b(dv|dovi|dolby[ .\\-_]?vision)\\b"}]}'
+    local hdr_yes='{"name":"HDR10 base layer","implementation":"ReleaseTitleSpecification","negate":false,"required":true,"fields":[{"name":"value","value":"\\bhdr|\\bhlg\\b|\\bpq\\b"}]}'
+    local hdr_no='{"name":"No HDR10 fallback","implementation":"ReleaseTitleSpecification","negate":true,"required":true,"fields":[{"name":"value","value":"\\bhdr|\\bhlg\\b|\\bpq\\b"}]}'
+    local disc_no='{"name":"Not a disc source","implementation":"ReleaseTitleSpecification","negate":true,"required":true,"fields":[{"name":"value","value":"\\b(blu-?ray|remux|bdrip|bdremux)\\b"}]}'
+
+    ensure_custom_format "$BASE" "$AUTH" "$name" "DV (Profile 5)" -1000 \
+        "[${dv_token},${hdr_no},${disc_no}]"
+    ensure_custom_format "$BASE" "$AUTH" "$name" "DV HDR10 (Profile 8.1)" 500 \
+        "[${dv_token},${hdr_yes}]"
 
     # --- Delay profile (if SABnzbd running — prefer Usenet) ---
     if $SABNZBD_RUNNING; then
