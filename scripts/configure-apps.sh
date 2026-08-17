@@ -398,8 +398,8 @@ configure_bazarr() {
     if ! wait_for_service "Bazarr" "${BASE}/api/system/status"; then return; fi
 
     if $DRY_RUN; then
-        dry "Connect Bazarr to Sonarr (gluetun:8989)"
-        dry "Connect Bazarr to Radarr (gluetun:7878)"
+        dry "Connect Bazarr to Sonarr (sonarr:8989)"
+        dry "Connect Bazarr to Radarr (radarr:7878)"
         dry "Enable subtitle sync (ffsubsync) with thresholds"
         dry "Enable Sub-Zero mods (remove tags, emoji, OCR fixes, common fixes, fix uppercase)"
         dry "Set default subtitle language to English"
@@ -418,27 +418,72 @@ configure_bazarr() {
     local needs_restart=false
 
     # --- Sonarr/Radarr connections ---
-    local sonarr_connected=false radarr_connected=false
-    local sonarr_section
-    sonarr_section=$(json_extract "$settings" "s=data.get('sonarr',{}); print(s.get('ip',''),s.get('port',''))")
-    local radarr_section
-    radarr_section=$(json_extract "$settings" "s=data.get('radarr',{}); print(s.get('ip',''),s.get('port',''))")
-    [[ "$sonarr_section" == "gluetun 8989" ]] && sonarr_connected=true
-    [[ "$radarr_section" == "gluetun 7878" ]] && radarr_connected=true
+    #
+    # Bazarr reaches Sonarr and Radarr by container name over the arr-stack
+    # bridge. Both moved out of Gluetun's network namespace on 2026-06-27 and
+    # have their own bridge IPs since; "gluetun:8989" has not reached Sonarr
+    # from Bazarr since that change (verified on the NAS 2026-08-17: gluetun:8989
+    # and gluetun:7878 both fail to connect, sonarr:8989 and radarr:7878 both
+    # answer HTTP 401). Change these only alongside the compose networking.
+    local sonarr_host="sonarr" sonarr_port=8989
+    local radarr_host="radarr" radarr_port=7878
 
-    if $sonarr_connected && $radarr_connected; then
+    # Compare every field this step would write, so a run that would change
+    # nothing skips instead of POSTing and bouncing the container. Prints MATCH
+    # when the live config already matches, otherwise the differing fields.
+    # Empty output means the comparison itself broke (bad JSON, python error) —
+    # that is reported as a failure, never as a silent skip.
+    local conn_state
+    conn_state=$(json_extract "$settings" "
+want = {
+    'sonarr': {'ip': '''${sonarr_host}''', 'port': ${sonarr_port}, 'base_url': '', 'ssl': False, 'apikey': '''${SONARR_API_KEY}'''},
+    'radarr': {'ip': '''${radarr_host}''', 'port': ${radarr_port}, 'base_url': '', 'ssl': False, 'apikey': '''${RADARR_API_KEY}'''},
+}
+general = data.get('general', {})
+diff = []
+for section, fields in sorted(want.items()):
+    current = data.get(section, {})
+    if not general.get('use_' + section):
+        diff.append('general.use_' + section)
+    for field, expected in sorted(fields.items()):
+        if field == 'apikey' and not expected:
+            continue  # key not discovered this run — nothing to compare against
+        actual = current.get(field)
+        if field == 'port':
+            actual = int(actual) if str(actual).isdigit() else actual
+        if actual != expected:
+            diff.append(section + '.' + field)
+print(' '.join(diff) if diff else 'MATCH')")
+
+    if [[ -z "$conn_state" ]]; then
+        fail "Bazarr: could not compare Sonarr/Radarr connection settings"
+    elif [[ "$conn_state" == "MATCH" ]]; then
         skip "Bazarr: Sonarr/Radarr connections"
     else
-        local conn_payload="{"
-        if [[ -n "$SONARR_API_KEY" ]]; then
-            conn_payload+="\"sonarr\": {\"ip\": \"gluetun\", \"port\": \"8989\", \"apikey\": \"${SONARR_API_KEY}\", \"base_url\": \"\"},"
-        fi
-        if [[ -n "$RADARR_API_KEY" ]]; then
-            conn_payload+="\"radarr\": {\"ip\": \"gluetun\", \"port\": \"7878\", \"apikey\": \"${RADARR_API_KEY}\", \"base_url\": \"\"},"
-        fi
-        conn_payload="${conn_payload%,}}"
-        if api_post "${BASE}/api/system/settings" "application/json" "$conn_payload" "$AUTH" >/dev/null 2>&1; then
-            ok "Bazarr: configured Sonarr/Radarr connections"
+        # Flat form keys — a nested JSON body is accepted and discarded.
+        # See bazarr_settings_post in lib/configure-helpers.sh.
+        #
+        # Booleans must be lowercase "true"/"false": Bazarr's validator type-checks
+        # the raw form value, so "True" is rejected with HTTP 406 ("must is_type_of
+        # <class 'bool'>") and takes the whole POST down with it. Verified on the
+        # NAS 2026-08-17 — "on", "1" and "0" are rejected the same way.
+        local conn_keys=(
+            "settings-general-use_sonarr=true"
+            "settings-sonarr-ip=${sonarr_host}"
+            "settings-sonarr-port=${sonarr_port}"
+            "settings-sonarr-base_url="
+            "settings-sonarr-ssl=false"
+            "settings-general-use_radarr=true"
+            "settings-radarr-ip=${radarr_host}"
+            "settings-radarr-port=${radarr_port}"
+            "settings-radarr-base_url="
+            "settings-radarr-ssl=false"
+        )
+        [[ -n "$SONARR_API_KEY" ]] && conn_keys+=("settings-sonarr-apikey=${SONARR_API_KEY}")
+        [[ -n "$RADARR_API_KEY" ]] && conn_keys+=("settings-radarr-apikey=${RADARR_API_KEY}")
+
+        if bazarr_settings_post "$BASE" "$AUTH" "${conn_keys[@]}"; then
+            ok "Bazarr: configured Sonarr/Radarr connections (${conn_state})"
             needs_restart=true
         else
             fail "Bazarr: configure Sonarr/Radarr connections"

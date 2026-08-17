@@ -129,6 +129,46 @@ qbit_auth() {
 }
 
 # ============================================
+# Bazarr settings
+# ============================================
+
+# POST settings to Bazarr's /api/system/settings.
+#
+# Bazarr only accepts flat form keys ("settings-<section>-<field>"). A nested
+# JSON body is answered with HTTP 204 and then silently discarded, so a step
+# written that way reports success, writes nothing, and runs again — with a
+# container restart — on every single run.
+#
+# Verified on the NAS 2026-08-17:
+#   {"sonarr": {"http_timeout": 61}}          → 204, value unchanged (60)
+#   settings-sonarr-http_timeout=120          → 204, value changed to 120
+#   settings-sonarr-http_timeout=61           → 406, "must is_in [60, 120, ...]"
+# The 406 is the tell: flat keys reach Bazarr's validator, a JSON blob never does.
+#
+# Usage:
+#   bazarr_settings_post "$BASE" "$AUTH" "settings-sonarr-ip=sonarr" "settings-sonarr-port=8989"
+bazarr_settings_post() {
+    local BASE="$1" AUTH="$2"; shift 2
+    local args=(-s -w '\n%{http_code}' -o - -X POST -H "$AUTH")
+    local kv
+    for kv in "$@"; do args+=(--data-urlencode "$kv"); done
+
+    local response code body
+    response=$(curl "${args[@]}" "${BASE}/api/system/settings")
+    code=$(echo "$response" | tail -1)
+    body=$(echo "$response" | sed '$d')
+
+    if [[ "$code" =~ ^2 ]]; then
+        return 0
+    fi
+    if [[ "${VERBOSE:-false}" == "true" ]]; then
+        echo "  [verbose] POST ${BASE}/api/system/settings → HTTP $code" >&2
+        echo "  [verbose] Response: $body" >&2
+    fi
+    return 1
+}
+
+# ============================================
 # Custom formats
 # ============================================
 
