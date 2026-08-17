@@ -548,10 +548,11 @@ print(' '.join(diff) if diff else 'MATCH')")
     # string both fail the same way — verified on the NAS 2026-08-17.
     #
     # Mods are toggled one at a time through a separate "subzero-<mod>" key
-    # space instead (app/config.py, settings_keys[0] == 'subzero'), where a
-    # truthy value adds the mod and an empty value removes it. Note that
-    # "false" is a truthy string in Python and would therefore ADD the mod —
-    # removal needs a genuinely empty value.
+    # space instead (app/config.py, settings_keys[0] == 'subzero'), which adds
+    # on a truthy value and removes on a falsy one. save_settings normalises
+    # first — numeric strings to int, then literal "true"/"false" to bool — so
+    # "true"/1 add, and "false"/0/empty remove. Any other non-empty string is
+    # truthy and would add regardless of what it appears to mean.
     #
     # Only the missing mods are sent, because Bazarr appends with no membership
     # check: re-sending an already-enabled mod stores it twice (confirmed —
