@@ -114,7 +114,7 @@ wait_for_service() {
 qbit_auth() {
     local url="$1" username="$2" password="$3" cookie_file="$4"
     local response http_code body
-    response=$(curl -s -w '\n%{http_code}' \
+    response=$(curl -s -m 20 -w '\n%{http_code}' \
         -c "$cookie_file" \
         --data-urlencode "username=${username}" \
         --data-urlencode "password=${password}" \
@@ -122,10 +122,33 @@ qbit_auth() {
     http_code=$(echo "$response" | tail -1)
     body=$(echo "$response" | head -1)
 
-    if [[ "$http_code" != "200" ]] || [[ "$body" != "Ok." ]]; then
-        return 1
-    fi
-    return 0
+    # qBittorrent answers /auth/login three different ways:
+    #   200 "Ok."    credentials accepted, session cookie issued
+    #   200 "Fails." credentials rejected
+    #   204          WebUI\AuthSubnetWhitelist covers the calling IP, so login
+    #                was skipped entirely and no cookie was issued
+    #
+    # The 204 case is why this used to fail on the NAS: the whitelist covers
+    # 10.10.0.0/24, so a perfectly good username and password came back 204
+    # with an empty body and the old check — which demanded 200 and "Ok." —
+    # reported an authentication failure.
+    #
+    # Do not read 204 as "credentials are correct". It isn't: a deliberately
+    # wrong password returns 204 just the same, because nothing is checked.
+    case "$http_code" in
+        200) [[ "$body" == "Ok." ]] || return 1 ;;
+        204) ;;
+        *)   return 1 ;;
+    esac
+
+    # So confirm the API is genuinely usable rather than trusting the status
+    # code. This is the part that can actually fail — on a 204 the cookie jar
+    # is empty, and if the whitelist did not in fact authorise us this call
+    # comes back 403 and we report failure instead of sailing on.
+    local verify_code
+    verify_code=$(curl -s -m 20 -o /dev/null -w '%{http_code}' \
+        -b "$cookie_file" "${url}/api/v2/app/version")
+    [[ "$verify_code" == "200" ]]
 }
 
 # ============================================
