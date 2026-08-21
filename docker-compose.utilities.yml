@@ -423,6 +423,7 @@ services:
     container_name: landing-page
     <<: *default-security
     cap_add:
+      - CHOWN             # nginx master chowns cache dirs to its worker user at startup
       - NET_BIND_SERVICE  # nginx binds port 80 as root
     restart: always
     networks:
