@@ -2,6 +2,94 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+Three fixes, and the theme from 1.8.0 continues: **two of them were checks that ran, reported success or failure confidently, and were structurally incapable of being right.**
+
+### Added
+- **Dolby Vision profile scoring for Sonarr and Radarr** — `DV (Profile 5)` at `-1000` and `DV HDR10 (Profile 8.1)` at `+500`, applied by `configure-apps.sh` to both services and documented for manual setup in `docs/APP-CONFIG.md`. Profile 5 encodes its base layer as IPT-PQ-C2, which is meaningless unless the player applies the Dolby Vision RPU, and it carries no HDR10 fallback. A Profile 5 grab of Ted Lasso S04E02 played on the Fire TV as a sharp picture with a green/magenta cast for the entire episode — the file had no colour metadata, no HDR10 static metadata and **no Dolby Vision configuration record in the MKV at all**, so nothing downstream was even told it was Dolby Vision. Sonarr had 34 custom formats and none that could tell Profile 5 from 8.1, so every candidate scored 0 and the unplayable file won on resolution alone. Disc sources are deliberately excluded from the penalty: UHD Blu-ray Dolby Vision is **Profile 7**, whose base layer *is* HDR10-compatible, and an earlier pass of the matcher flagged two Blu-ray remuxes that it would have traded away for worse WEB rips.
+- **`ensure_custom_format`** in `scripts/lib/configure-helpers.sh` — create-if-absent plus score-in-every-profile, idempotent on both halves. `Reject ISO` moved onto it rather than growing a third copy of fifty near-identical lines.
+
+### Fixed
+- **`configure-apps.sh` reported "qBittorrent: authentication failed" on every run, while the credentials were fine.** Two faults stacked. The username was defaulted to `admin` at declaration and never read from `.env`, which stores it as `QBIT_USER` — so it was never empty and no lookup could have run even had one existed. And with `WebUI\AuthSubnetWhitelist` covering the NAS's own subnet, qBittorrent skips the login for local callers and answers `204 No Content` with an empty body, where the check demanded `200` and `"Ok."`. Widening it to accept `204` alone would have produced a check that **cannot fail** — a deliberately wrong password returns `204` too, and `/api/v2/app/version` returns `200` with no cookie at all. The login is now followed by a real API call through the cookie jar, which fails closed against a dead port or the wrong service.
+- **Bazarr's Sonarr/Radarr connection step reconfigured itself and restarted the container on every run**, contradicting the script's documented "safe to re-run". Bazarr only accepts flat form keys at `/api/system/settings`; a nested JSON body is answered `204` and then silently discarded — so the step reported success, wrote nothing, and did it again next time. `bazarr_settings_post` now sends flat keys, and the `406` that a bad value returns is the evidence the request reaches Bazarr's validator at all.
+- **`APP-CONFIG-QUICK.md` still told users to point Seerr at `gluetun` for Sonarr and Radarr.** The arr-off-VPN migration updated the manual guide and `REFERENCE.md` but missed the script-assisted one, so the two contradicted each other and the quick path handed out an address that cannot work — from the Seerr container, `gluetun:8989` and `gluetun:7878` are refused outright while `sonarr:8989` and `radarr:7878` connect. Also finished the Seerr rename in the docs that still called the running service Jellyseerr; the changelog's own history of the rebrand is left alone.
+- **Bazarr's other three settings steps — subtitle sync, Sub-Zero mods, default subtitle language — carried the same discarded write.** They skipped only because their values happened to match; any drift and each would have restarted the container on every run while reporting success. Two also compared far less than they wrote: subtitle sync checked `use_subsync` alone, so an edited threshold read as "already configured", and the language step checked `serie_default_enabled`, leaving the movie half and both profile ids unverified. Sub-Zero mods turned out not to be writable through `settings-general-subzero_mods` **at all** — Bazarr stores the value as a comma-separated string while also listing `subzero_mods` among its array fields, so the parser hands the validator a list against a schema demanding a string and every value is refused `406 must is_type_of <class 'str'>`. Mods are toggled one at a time through a separate `subzero-<mod>` key space, which adds on a truthy value and removes on a falsy one after normalising numeric strings to integers and literal `true`/`false` to booleans — so any other non-empty string adds regardless of intent — and adding runs without a membership check, so re-sending an already-enabled mod stores it twice. Only missing mods are sent; mods outside the intended set are deliberately left alone, since stripping one enabled by hand would put the live config permanently at odds with the script and rebuild the same restart loop. The whole API contract is now written down in `docs/APP-CONFIG-ADVANCED.md`.
+
+## [1.8.0] - 2026-08-16
+
+A large batch. Two themes: **this repo stopped carrying things that weren't a media stack**, and **several checks turned out to be blind** — running, reporting success, and structurally unable to see the failure they existed for.
+
+### Added
+- **Licence files, and a real structure.** `LICENSE-code` (PolyForm Noncommercial 1.0.0) for compose files, scripts, tests and hooks; `LICENSE-docs` (CC BY-NC 4.0) for prose; `LICENSE` as an index explaining which applies where. Creative Commons explicitly recommend against CC licences for software — no patent grant, no source provisions, "NonCommercial" loosely defined for code. Four test/script files adapted from a downstream fork **stay on CC BY-NC 4.0** pending their author's agreement; relicensing someone else's copyright isn't ours to do. Forward-only: every existing fork keeps CC BY-NC 4.0 permanently.
+- **`tests/e2e/networking.spec.ts`** — automated guards for two real incidents. Traefik recreated via the wrong compose file loses its `traefik-lan` macvlan and every `.lan` URL dies while the container reports healthy (2026-08-01); and Pi-hole's `${NAS_IP}`-pinned bindings silently fail to establish while its own healthcheck passes, because that healthcheck digs `127.0.0.1` from inside its netns (2026-08-05). Both look fine to `docker ps`.
+- **`tests/e2e/vpn-security.spec.ts`** — per-service egress comparison, plus a killswitch chaos test behind `ALLOW_DISRUPTIVE_TESTS=1`, and a regression guard that Sonarr/Radarr stay *off* the VPN.
+- **`scripts/detect-vpn-zombies.sh`** — detects containers bound to a Gluetun network namespace that no longer exists after a *recreate*. They stay healthy on their own localhost while being unreachable from the stack; `docker ps`, health status and deunhealth are all blind to it.
+- **`tests/hooks-installed.bats`** — asserts the pre-commit hook is installed, points at `scripts/pre-commit`, and is **executable** (git skips a non-executable hook silently).
+- **Tailscale exit node** (`--advertise-exit-node`) — lets a tailnet device route all its internet traffic via the NAS. Inert until approved in the admin console.
+
+### Changed
+- **Eleven image bumps.** cloudflared `2026.7.3`→`2026.8.2`, dnscrypt-proxy `2.1.16`→`2.1.18`, flaresolverr `v3.4.6`→`v3.5.0`, configarr `1.24.0`→`1.30.2`, bazarr `1.5.6`→`1.6.0`, prowlarr `2.3.0`→`2.5.2`, qBittorrent `5.1.4`→`5.2.3`, radarr `6.1.1`→`6.3.0`, sonarr `4.0.17`→`4.0.19`, tailscale `v1.98.10`→`v1.102.2`, and **SABnzbd `4.5.5`→`5.1.0` (major)**. All verified on the NAS: Radarr's DB migration clean with its library intact, qBittorrent's API and categories intact, and SABnzbd's news server, categories and paths compared against a snapshot taken *before* the bump — a healthy container proves nothing about a Usenet pipeline. Config volumes backed up first.
+- **`scripts/check-vpn.sh` rewritten.** It compared Gluetun's *public* exit IP against the NAS's *LAN* IP. A routable address and an RFC 1918 one can never be equal, so the leak branch could never fire and it printed "OK: VPN is active" unconditionally. It now measures the host's real egress via a bridge-only container and requires each tunneled service to match Gluetun **exactly** — merely differing from the host would also be true of a service escaping down a third route.
+- **The e2e suite is split by domain** — `ui-screenshots`, `api-assertions`, `networking`, `vpn-security`, sharing `helpers.ts`. Same 13 tests, verified by count.
+- **Documentation no longer uses the maintainer's real home network** as its worked example. `192.168.1.x`, a placeholder MAC and `nasadmin` throughout. Docker's `172.20.0.0/24` and `10.8.1.0/24` are untouched — they're internal ranges, not anyone's LAN.
+
+### Fixed
+- **The update checker reported 2 available updates when there were 11.** Three independent faults, each failing toward a false all-clear: GHCR was queried **without the bearer token it requires**, so the tag list came back empty for every `ghcr.io` and `lscr.io` image — most of the stack; a **failed lookup was cached as "current"**, turning one rate-limited run into a permanent false all-clear; and `lscr.io` was routed to GHCR, whose `tags/list` **cannot sort**, so linuxserver's constant nightly pushes crowded every stable tag out of the window. Tag selection is now a positive match on `^v?[0-9]+(\.[0-9]+)*$` rather than a denylist of shapes previously seen.
+- **Three checks that were quietly not checking.** `scripts/pre-commit` read `$?` *after* `fi` — that's the `if` statement's status, always 0 — so the env-var check never once blocked a commit. `setup-hooks.sh` tested `[[ -d .git ]]`, which is false in a worktree where `.git` is a file, so it exited "not a git repository" and installed nothing. `check-secrets.sh` flagged unquoted `PASSWORD=${VAR}` as a plaintext password.
+- **A CHANGELOG heading deleted by an earlier edit** — the `## [1.7.26]` heading was replaced rather than pushed down when 1.7.27 was inserted, so 1.7.26's entry was absorbed into 1.7.27 and the 5 August image bumps appeared to have shipped on the 15th. Content was never lost, only its attribution to a date.
+
+### Notes
+- Releases **1.7.25 – 1.7.28 were changelogged but never tagged**; this release includes them.
+- GitHub reports this repository as unlicensed. Its detector recognises thirteen licences and includes neither PolyForm nor any NonCommercial CC variant. Cosmetic — the licence files are what have legal effect.
+
+## [1.7.28] - 2026-08-15
+
+### Removed
+- **`scripts/boot-compose-up.sh` and `scripts/boot-compose-up.service` have moved out**, to a private repo that owns the machine they run on. They were added in 1.7.25 to fix a real and nasty problem — Docker leaving `${NAS_IP}`-pinned ports unpublished after a reboot — but the script did that by hardcoding a list of *one particular NAS's* stacks, including private ones this repo has no business knowing exist. Worse, it was symlinked into place, so a public template repo was not documenting a boot sequence, it **was** the boot sequence for private infrastructure. Which stacks exist, where they live and in what order they need to start is the operator's business, not a template's.
+
+### Changed
+- **TROUBLESHOOTING.md's "Ports Not Published After Reboot" entry now teaches the fix instead of shipping it.** The symptom, the diagnosis and — more valuable — the four things that were learned painfully are all still here: wait for `dockerd` inside the script rather than trusting systemd ordering; put DNS first so it returns in ~20s rather than after the full ~5 minute sweep; let one stack's failure not stop the rest; and never `--remove-orphans`. The `Wants=` vs `Requires=`/`RequiresMountsFor=` warning stays too, since that mistake left the unit `inactive (dead)` with DNS down and nothing in `systemctl status`. Manual repair is now a plain `docker compose up -d` against this stack's own file, which is all a reader of *this* repo needs.
+
+## [1.7.27] - 2026-08-15
+
+### Removed
+- **Camera Listen is gone from this repo**, to `Pharkie/sofa-panel-tab5` where its only consumer lives. It was a private audio bridge — Reolink camera audio transcoded to MP3 for a sofa-mounted ESPHome panel — and it had nothing to do with a media stack. Every fork of this repo was cloning it. The commit that added it (2026-08-01) argued that NAS services must deploy from here; that stopped being true once this NAS started booting stacks from four separate directories, and stack orchestration is moving out to a private `nas-ops` repo that holds paths rather than code (Frigate and Immich already work that way). Deleted: `camera-listen/`, `docker-compose.camera-listen.yml`, and its `.gitignore` entry. `scripts/boot-compose-up.sh` now points at the new location. The TROUBLESHOOTING.md reference is left alone — it is a factual record of what the 2026-08-01 `--remove-orphans` incident deleted, and rewriting history is not the job of a changelog.
+
+### Fixed
+- **The bats suite is green again — 23/23, up from 19/23.** All four failures were Camera Listen, and all four were the test suite being right. It was the only service built from a Dockerfile rather than pulled, so `camera-listen:latest` failed *both* `:latest` pinning tests *and* the registry-existence test (which tried to query a registry for an image that only ever existed locally, returning curl 56). It was also the only user of `env_file:`, which `security.bats` forbids on infrastructure containers. None of that was a flaw in the tests: they are written for a stack of pulled images, and the service that broke the assumption did not belong here. A downstream fork ([leonardoazeredo](https://github.com/leonardoazeredo/ultimate-arr-stack)) had independently hit the same four failures and worked around them with a `get_pulled_images()` helper that skips services with a sibling `build:` directive — a sound fix, and no longer needed here.
+
+## [1.7.26] - 2026-08-05
+
+### Changed
+- **Image bumps:** cloudflared `2026.6.1` → `2026.7.3`, Pi-hole `2026.06.0` → `2026.07.2`, Tailscale `v1.98.4` → `v1.98.10`, and the docker CLI used by `gluetun-recover` `26.1-cli` → `29.7-cli`. Verified on the NAS from the branch before merge: all four containers healthy on the new tags, no unhealthy containers anywhere, Pi-hole resolving public and `.lan` names with its `${NAS_IP}:53` bindings published, Tailscale re-registered on the tailnet, and all `.lan` services answering through Traefik. The docker-CLI jump is three majors, so `gluetun-recover` was checked specifically — 0 restarts and it can still drive the docker socket (`docker exec gluetun-recover docker ps` lists containers), which is the only API surface it uses.
+
+### Documentation
+- **A Pi-hole restart poisons macOS's DNS cache for `.lan` when clients have a public fallback resolver.** While Pi-hole is down, `.lan` lookups fall through to the secondary (e.g. `1.1.1.1`), which answers **NXDOMAIN** authoritatively; macOS caches that negative answer and keeps serving it after Pi-hole returns, so every `.lan` domain looks dead while `dig @<NAS_IP>` works perfectly. Observed during this bump. The fix on each Mac is an `/etc/resolver/lan` file pinning that TLD to Pi-hole, which bypasses the fallback for `.lan` only and keeps the fallback protecting general internet access.
+
+## [1.7.25] - 2026-08-05
+
+### Fixed
+- **Docker no longer leaves host-IP-pinned ports unpublished after a reboot** — the fault that took the entire home network's DNS down on 2026-08-05. At boot the Docker *daemon* restores `restart: always` containers itself (compose is never involved), and bindings pinned to `${NAS_IP}` silently fail to be established while the container starts anyway. Reproduced on three consecutive reboots: **the only three `${NAS_IP}`-pinned containers — Pi-hole, plus two from a neighbouring compose project — failed every time; all 13 wildcard-bound containers were unaffected.** One failed binding drops the container's whole mapping set, so Pi-hole also lost its `0.0.0.0:8081` UI. Pi-hole reported **healthy** throughout, because its healthcheck digs `127.0.0.1` from *inside* the container — so `docker ps`, health status and `deunhealth` were all blind to it. Fixed by `scripts/boot-compose-up.sh`, run at boot via `scripts/boot-compose-up.service`, which runs `docker compose up -d` across all nine deployed stacks and re-establishes the bindings. DNS is back ~20s after boot (Pi-hole's stack is ordered first); the full sweep takes ~5 minutes.
+
+### Added
+- **`scripts/boot-compose-up.sh` + `scripts/boot-compose-up.service`**, deployed to `/volume1/docker/boot-compose-up.sh` (symlinked into this repo so `git pull` updates it) and `/etc/systemd/system/`. The script waits for dockerd to accept connections before doing anything, brings each stack up independently so one failure can't block the rest (DNS matters more than Immich), logs to `/volume1/docker/boot-compose-up.log` with self-trimming, and deliberately never passes `--remove-orphans` (see the existing TROUBLESHOOTING entry — it would delete the other compose files' containers).
+
+### Documentation
+- **TROUBLESHOOTING.md "Docker: Ports Not Published After Reboot"**: the full incident, and how it differs from the neighbouring exit-128 Pi-hole entry — there the container is *stopped*; here it is *running and answering nobody*, which is much harder to spot. Three things learned the hard way and now written down: (1) the systemd unit must use `Wants=`, never `Requires=`/`RequiresMountsFor=` — the first version failed the job nine seconds into boot because `/volume1` wasn't mounted yet and **never retried**, leaving it `inactive (dead)` with nothing in `systemctl status`; (2) a **static IP does not fix this**, unlike the exit-128 case — UGOS reverts the Control Panel setting to DHCP on reboot and overrides `ifcfg-eth0` (which has said `static` since February) via its own `dhclient@eth0.service`; (3) `nasadmin` must be in the `systemd-journal` group or `journalctl` returns nothing in a way that reads as "no logs" rather than "no permission".
+
+## [1.7.24] - 2026-08-01
+
+### Changed
+- **Seerr** v3.3.0 → v3.4.1. The bump was made live on the NAS first (config volume backed up to `seerr-config-backup-20260801-202225.tgz` beforehand); this release absorbs it into the repo. Verified on the NAS: container healthy, `/api/v1/status` reports 3.4.1, and Seerr reaches qBittorrent through `gluetun:8085`.
+- **Diun now notifies about new release tags, not just digest changes of the pinned tag**: added `DIUN_DEFAULTS_WATCHREPO=true` plus a semver-only `DIUN_DEFAULTS_INCLUDETAGS=^v?\d+\.\d+\.\d+$` filter (nightlies/betas/rc tags stay silent), capped at the 25 highest tags per repo (`SORTTAGS=semver` + `MAXTAGS=25`) so daily scans don't hammer registries. Without `watchRepo`, diun only reported when e.g. `:v3.3.0` itself was re-pushed — which is why the Seerr v3.4.x releases were never noticed. Deployment gotcha (verified in diun's source — `db.First()` tracks "first check" per *repo*, not per tag): enabling `watchRepo` against an existing diun DB fires a notification for every historical tag it hasn't seen, several hundred across the stack. The DB was moved aside (`diun.db.pre-watchrepo`) so the first scan primed silently; only genuinely new releases notify from now on.
+
+### Fixed
+- **`gluetun-recover` no longer fails silently after a gluetun RECREATE**: `docker restart` of a dependent only works when gluetun was *restarted* (same container ID). When gluetun is *recreated* — which any `docker compose up -d`, even of an unrelated service, will do if gluetun's config has drifted — the dependents still point at the old container ID and restart fails with "joining network namespace … No such container". The watcher now logs that failure loudly, including the exact `docker compose up -d --force-recreate <service>` command to run. (It cannot self-heal this case: fixing it requires compose, which the watcher doesn't have.)
+
+### Documentation
+- **TROUBLESHOOTING.md "After a Gluetun RECREATE"**: documents the 2026-08-01 incident — `docker compose up -d seerr` recreated gluetun (config drift), SIGKILLing qBittorrent/SABnzbd/Prowlarr/FlareSolverr (exit 137); `gluetun-recover` and plain `docker restart` both failed on the stale container ID; FlareSolverr then wedged in a `Dead` state dockerd could never remove ("removal of container is already in progress"), which blocked compose and required a Docker daemon restart to clear. Includes the compose-recreate fix, the daemon-restart escape hatch, and a `--dry-run` check to spot an imminent gluetun recreate before it bites.
+
 ## [1.7.23] - 2026-06-27
 
 ### Changed
@@ -162,7 +250,7 @@ All notable changes to this project will be documented in this file.
 - **Seerr** v3.1.0 → v3.2.0
 
 ### Fixed
-- **Queue-cleanup cron silently failing**: Log path moved from `/var/log/` (which `mooseadmin` can't write to on UGOS) to `$NAS_STACK_DIR/logs/`. Also added detection for `importBlocked` and `importPending` items (already-imported packs, executable files, quality mismatches) that were accumulating unhandled
+- **Queue-cleanup cron silently failing**: Log path moved from `/var/log/` (which `nasadmin` can't write to on UGOS) to `$NAS_STACK_DIR/logs/`. Also added detection for `importBlocked` and `importPending` items (already-imported packs, executable files, quality mismatches) that were accumulating unhandled
 - **Pi-hole config**: Removed unsupported `-q` flag from `pihole-FTL --config` and switched from `pihole restartdns` (which fails under `cap_drop: ALL`) to `docker restart pihole`
 
 ### Security
@@ -222,7 +310,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - **Seerr library sync and quality defaults**: Documented that Jellyfin libraries must be enabled in Seerr settings and synced, otherwise movies/shows stay stuck at "Requested". Default quality profiles set to `UHD Bluray + WEB` (Radarr) and `Ultra-HD` (Sonarr)
-- **qBittorrent auth subnet whitelist**: Documented local network whitelist (`172.20.0.0/24, 10.10.0.0/24, 127.0.0.0/8`) to prevent IP bans from Sonarr/Radarr reconnections and API scripts after container restarts
+- **qBittorrent auth subnet whitelist**: Documented local network whitelist (`172.20.0.0/24, 192.168.1.0/24, 127.0.0.0/8`) to prevent IP bans from Sonarr/Radarr reconnections and API scripts after container restarts
 
 ### Documentation
 - **UPGRADING.md**: v1.7.3 migration steps for Seerr library sync, quality profile defaults, and qBit auth whitelist
@@ -370,7 +458,7 @@ All notable changes to this project will be documented in this file.
 ## [1.6.1] - 2026-02-12
 
 ### Fixed
-- **Gluetun fails to start after power cut**: On simultaneous restart, containers from other compose projects (e.g. therapy-stack Baserow) could grab Gluetun's reserved IP (172.20.0.3) dynamically, causing "Address already in use" and taking down all VPN-dependent services. Fixed by adding `ip_range: 172.20.0.128/25` to the arr-stack network definition in `docker-compose.traefik.yml`, confining dynamic allocations to 128-255 and protecting static IPs
+- **Gluetun fails to start after power cut**: On simultaneous restart, containers from other compose projects (sharing the arr-stack network) could grab Gluetun's reserved IP (172.20.0.3) dynamically, causing "Address already in use" and taking down all VPN-dependent services. Fixed by adding `ip_range: 172.20.0.128/25` to the arr-stack network definition in `docker-compose.traefik.yml`, confining dynamic allocations to 128-255 and protecting static IPs
 - **RAID5 tuning lost on reboot**: UGOS firmware updates silently overwrite `/etc/rc.local`, wiping custom tuning. Moved RAID5 streaming tuning (read-ahead + stripe cache) from rc.local to root crontab `@reboot` which survives UGOS updates
 
 ### Changed

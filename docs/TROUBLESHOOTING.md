@@ -77,7 +77,7 @@ Surfshark's WireGuard key is account-wide, so changing only `VPN_COUNTRIES` is e
 
 **Symptom:** Searches feel broken but nothing is hard-down. An interactive search or `GET /api/v1/search` takes **~50s** instead of a second or two. Per-indexer tests are slow (10s+) or return **HTTP 500**, and the slowness hits *everything* riding the tunnel at once — including reliable paid indexers like NZBgeek that should never be slow. Crucially, this is **not** a 451/legal block, and `GET /api/v1/indexerstatus` may show **0 failures** because nothing has crossed the 6-hour auto-disable threshold yet. The web UIs of VPN-protected services (Prowlarr/qBittorrent) also feel laggy and jittery (response times jumping 10ms → 4s).
 
-This can masquerade as unrelated problems: a `*.lan` service like `seerr.lan` "feeling slow" is **not** caused by this (that path is local and never touches the VPN) — but *triggering a search/request inside Jellyseerr* is, because that call fans out seerr → Sonarr/Radarr → Prowlarr → tunnel.
+This can masquerade as unrelated problems: a `*.lan` service like `seerr.lan` "feeling slow" is **not** caused by this (that path is local and never touches the VPN) — but *triggering a search/request inside Seerr* is, because that call fans out seerr → Sonarr/Radarr → Prowlarr → tunnel.
 
 **Cause:** The specific WireGuard server gluetun happened to connect to is congested or throttled (or partially degraded). The country is fine — it's just a bad server, and gluetun will sit on it indefinitely. The exit IP resolves and basic reachability works (so it's not a tunnel-down or auth failure), it's just slow. Distinct from the geo-block case above (HTTP 451), which needs a *country* change.
 
@@ -141,6 +141,48 @@ docker exec prowlarr wget -qO- http://127.0.0.1:8191/    # flaresolverr -> "read
 
 # Manual recovery (gluetun-recover does this automatically):
 docker restart qbittorrent sabnzbd prowlarr flaresolverr   # or whichever started before gluetun
+```
+
+## NEVER Use `--remove-orphans` (Multi-Compose-File Project)
+
+This stack splits its services across several compose files (`docker-compose.arr-stack.yml`, `docker-compose.utilities.yml`, `docker-compose.traefik.yml`, …) that share **one project directory and project name**. To compose, any running container of the project that is not defined in the file you passed with `-f` is an *orphan*. So:
+
+```bash
+# DO NOT DO THIS — it deletes every container from the OTHER compose files:
+docker compose -f docker-compose.arr-stack.yml up -d --remove-orphans
+```
+
+This happened for real on 2026-08-01 (~20:30 BST): a single `--remove-orphans` run removed **traefik, camera-listen, cloudflared, diun, uptime-kuma, beszel, beszel-agent, gluetun-recover, deunhealth, duc and configarr** in one stroke. Volumes and configs survived (downtime only), and everything had to be restored file by file.
+
+The same split has a second face: **recreate a service only via the file that defines it.** Attachments and settings that live in one file are silently dropped if the container is ever brought up through another path — e.g. traefik's `traefik-lan` macvlan (its `192.168.1.11` LAN presence) exists only in `docker-compose.traefik.yml`; a traefik container created without that file comes up bridge-only and **every `.lan` URL dies while the container still reports healthy** (also observed 2026-08-01).
+
+If you actually need to prune an orphan, remove that one container by name with `docker rm`.
+
+### After a Gluetun RECREATE (not just a restart), `docker restart` cannot save you
+
+Everything above assumes gluetun was **restarted** — same container, same ID. If gluetun is **recreated** (its config in the compose file drifted, so *any* `docker compose up -d`, even of an unrelated service like seerr, replaces it), the dependents' `network_mode: "service:gluetun"` still points at the **old container ID**. They are SIGKILLed (exit 137), and now `docker restart` — whether run by you or by `gluetun-recover` — fails with:
+
+```
+Error response from daemon: ... joining network namespace of container <old-id>: No such container
+```
+
+`gluetun-recover` logs this failure loudly but **cannot fix it** (it would need to run compose, which it can't). The only fix is a compose-level recreate of the dependents so they bind to the new gluetun container:
+
+```bash
+cd /volume1/docker/arr-stack
+docker compose -f docker-compose.arr-stack.yml up -d qbittorrent sabnzbd prowlarr flaresolverr
+```
+
+**If that compose command hangs:** a dependent that died mid-netns-join can land in a `Dead` state that dockerd can never remove (`docker rm -f` → "removal of container is already in progress", forever). Compose then wedges trying to replace it, or leaves the replacement under a hash-prefixed name (`<id>_flaresolverr`). The only cure is a Docker daemon restart, which also clears the Dead container (observed 2026-08-01 with flaresolverr; check nobody is streaming first):
+
+```bash
+sudo systemctl restart docker    # bounces the whole stack; ~2-3 min to settle
+```
+
+**Prevention:** before any `docker compose up -d <service>` on the arr-stack file, check whether gluetun would be recreated too, and plan for the dependents:
+
+```bash
+docker compose -f docker-compose.arr-stack.yml up -d --dry-run <service> 2>&1 | grep -i recreate
 ```
 
 ## SABnzbd: Stuck Unpack Loop
@@ -240,6 +282,45 @@ sudo reboot
 **Why DHCP reservation isn't enough:** A DHCP reservation on your router guarantees the same IP every time, but the NAS still *obtains* it via DHCP at boot. The DHCP handshake takes a few seconds — by which time Docker has already tried and failed to start Pi-hole. A static IP is configured directly on the NAS, so it's available the moment the interface comes up — no router involved, no delay.
 
 **Keep the DHCP reservation too:** After switching to a static IP, keep the reservation on your router. The static IP means the NAS claims it instantly at boot; the reservation means the router won't hand out that same IP to another device via DHCP. Both together prevent IP conflicts.
+
+## Docker: Ports Not Published After Reboot (Containers "Running", Nothing Listening)
+
+**Symptom:** After any reboot — or a UGOS update — the whole network loses DNS, yet everything *looks* fine. `docker ps` shows Pi-hole `Up` and **healthy**. The giveaway is the `PORTS` column: it's **empty** for pihole, and nothing is listening on `${NAS_IP}:53`.
+
+**This is not the exit-128 problem above.** There, Pi-hole is *stopped* and the cause is obvious. Here it is *running and answering nobody*, which is far harder to spot — `docker ps`, health status and the Pi-hole UI all look normal.
+
+**Cause:** at boot the Docker **daemon** restores containers itself (`restart: always`) — compose is not involved, so no amount of `depends_on` affects it. Bindings pinned to a specific host IP fail to be established, and this Docker version logs it and starts the container anyway rather than refusing. Verified across three reboots on 2026-08-05: **the only three containers pinned to `${NAS_IP}` — Pi-hole, plus two from a neighbouring compose project — failed every time, while all 13 wildcard-bound containers were fine.** A single failed binding drops the container's *entire* mapping set, which is why Pi-hole also lost its `0.0.0.0:8081` web UI.
+
+Pi-hole's healthcheck (`dig @127.0.0.1` *inside* the container) passes throughout, so neither `docker ps` nor `deunhealth` will ever flag this.
+
+**Diagnose:**
+```bash
+docker ps --format "{{.Names}}\t{{.Ports}}" | grep pihole   # empty PORTS = not published
+ss -tlnp | grep ':53 '                                      # only 127.0.0.1:53 = UGOS's own dnsmasq
+dig @<NAS_IP> google.com                                    # "connection refused"
+```
+
+**Fix (permanent): run `docker compose up -d` across every stack at boot.** That reconciles each container against its compose file and re-establishes the bindings, which is precisely the step a `restart: always` misses. A one-shot systemd unit is the natural home for it.
+
+This repo does **not** ship that script. Which stacks exist, where they live and what order they need is specific to your machine — the version that used to live here hardcoded a private inventory, which is no business of a public template. Orchestrating your own boxes is the operator's job. What is worth copying is the shape, and the four things that were learned painfully:
+
+1. **Wait for `dockerd` inside the script**, in a loop, before doing anything. `@reboot` and systemd both fire before Docker is accepting connections.
+2. **Order the stacks so DNS comes up first.** Pi-hole's file first means DNS is back ~20s after boot rather than after the full sweep, which takes ~5 minutes here.
+3. **Let one stack's failure not stop the rest.** DNS matters more than a photo library.
+4. **Never pass `--remove-orphans`** — see the entry above; it deletes the other compose files' containers.
+
+DNS is back ~20s after boot (Pi-hole's stack first, deliberately); the full sweep takes ~5 minutes.
+
+**Critical: use `Wants=`, never `Requires=` or `RequiresMountsFor=` in that unit.** The first version here used `RequiresMountsFor=/volume1` + `Requires=docker.service`. Those are *hard* dependencies: `/volume1` wasn't mounted nine seconds into boot, so systemd failed the job outright (`Job boot-compose-up.service/start failed with result 'dependency'`) and **never retried**. DNS stayed down and the unit sat `inactive (dead)` with no error visible in `systemctl status`. Make the unit wait for its own preconditions in `ExecStart` instead — UGOS mounts `/volume1` outside systemd's view, so the only reliable test is the file itself.
+
+**A static IP does NOT fix this** (unlike the exit-128 case above). UGOS reverts the Control Panel setting to DHCP on reboot, and `/etc/network/interfaces.d/ifcfg-eth0` has declared `static` since February while UGOS's own `dhclient@eth0.service` overrides it regardless.
+
+**Manual repair**, if you need DNS back right now — no root required, as long as your user is in the `docker` group. Run it against the DNS stack first, then the rest:
+```bash
+cd /volume1/docker/arr-stack && docker compose -f docker-compose.arr-stack.yml up -d
+```
+
+**Reading boot logs:** `nasadmin` must be in the `systemd-journal` group or `journalctl` silently returns nothing, which reads exactly like "no logs" rather than "no permission" — that mistake cost an hour of diagnosis. `sudo usermod -aG systemd-journal nasadmin`.
 
 ## Pi-hole: Gravity Update Fails With Empty Status
 

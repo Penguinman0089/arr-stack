@@ -145,7 +145,7 @@ arr-stack network (172.20.0.0/24)
 │  │  ┌──────────────┐  ┌────────────────┐  ┌──────────────────────┐ │    │
 │  │  │ sonarr.lan   │  │ pihole.lan     │  │ homeassistant.lan    │ │    │
 │  │  └──────────────┘  └────────────────┘  └──────────────────────┘ │    │
-│  │  Phone → Tailscale → LAN (10.10.0.0/24) → Service               │    │
+│  │  Phone → Tailscale → LAN (192.168.1.0/24) → Service               │    │
 │  │  (No public exposure; only authorised tailnet devices reach LAN)│    │
 │  └──────────────────────────────────────────────────────────────────┘    │
 │                                                                          │

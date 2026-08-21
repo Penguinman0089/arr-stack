@@ -2,7 +2,7 @@
 # TAILSCALE - Remote access to your full LAN via mesh VPN
 #
 # What it does:
-# - Acts as a subnet router: advertises your LAN (e.g. 10.10.0.0/24) to your
+# - Acts as a subnet router: advertises your LAN (e.g. 192.168.1.0/24) to your
 #   Tailscale tailnet so phones/laptops can reach Pi-hole, *.lan domains,
 #   Home Assistant, NAS admin UIs, etc. from anywhere.
 # - Traverses CGNAT (no port-forward needed) and falls back to a relay over
@@ -25,7 +25,7 @@ name: tailscale
 
 services:
   tailscale:
-    image: tailscale/tailscale:v1.98.4
+    image: tailscale/tailscale:v1.102.2
     container_name: tailscale
     hostname: ${TS_HOSTNAME:-arr-stack-nas}
     # network_mode: host is required for subnet routing — the daemon needs
@@ -51,7 +51,12 @@ services:
       - TS_AUTHKEY=${TS_AUTHKEY:-}
       # Advertises your LAN subnet (LAN_SUBNET from .env) so tailnet peers can
       # reach the whole network. Add extra subnets with TS_EXTRA_ROUTES if needed.
-      - TS_EXTRA_ARGS=--advertise-routes=${LAN_SUBNET}${TS_EXTRA_ROUTES:+,${TS_EXTRA_ROUTES}} --accept-routes
+      # --advertise-exit-node offers the NAS as an exit node, letting a tailnet
+      # device route ALL its internet traffic through your home connection, not
+      # just LAN traffic. Advertising is inert until you approve it in the admin
+      # console (Machines -> your NAS -> Edit route settings -> tick 0.0.0.0/0
+      # and ::/0), so adding the flag changes nothing on its own.
+      - TS_EXTRA_ARGS=--advertise-routes=${LAN_SUBNET}${TS_EXTRA_ROUTES:+,${TS_EXTRA_ROUTES}} --accept-routes --advertise-exit-node
     healthcheck:
       test: ["CMD", "tailscale", "status", "--peers=false"]
       interval: 30s
@@ -65,5 +70,11 @@ services:
         max-size: "10m"
         max-file: "3"
 
+# Pinned like the volumes in docker-compose.arr-stack.yml. This file does set
+# an explicit `name: tailscale` above, so it is already safe from a deploy
+# directory rename — but not from someone editing that `name:` value, which
+# would silently point this at a fresh empty volume and de-authenticate the
+# node (losing the machine's Tailscale identity and its exit-node approval).
 volumes:
   tailscale-state:
+    name: tailscale_tailscale-state

@@ -13,13 +13,13 @@
 Today qBittorrent, SABnzbd, **Sonarr, Radarr**, Prowlarr and FlareSolverr all share
 gluetun's network namespace (`network_mode: service:gluetun`). Every VPN reconnect
 or gluetun health blip makes **all** of them briefly unreachable to the bridge
-services (Jellyseerr, Bazarr). That is the cause of the intermittent
-`Unable to get queue from Radarr/Sonarr` errors and the in-flight Jellyseerr
+services (Seerr, Bazarr). That is the cause of the intermittent
+`Unable to get queue from Radarr/Sonarr` errors and the in-flight Seerr
 request failures we saw on 2026-06-27.
 
 Sonarr and Radarr never talk to indexers or peers — only to metadata providers
 (TVDB/TMDB) and internal services. So they gain nothing from the VPN. Moving just
-those two onto the `arr-stack` bridge makes the Jellyseerr/Bazarr ↔ Sonarr/Radarr
+those two onto the `arr-stack` bridge makes the Seerr/Bazarr ↔ Sonarr/Radarr
 path immune to VPN flaps, and means a gluetun restart no longer SIGKILLs them.
 
 ## Why Prowlarr stays behind the VPN (scope decision)
@@ -63,8 +63,8 @@ branch. New connection targets:
 | Prowlarr → Sonarr/Radarr | the "Prowlarr Server" URL field in each app | `localhost:9696` | `gluetun:9696` |
 | Bazarr → Sonarr | Settings ▸ Sonarr | `gluetun:8989` | `sonarr:8989` |
 | Bazarr → Radarr | Settings ▸ Radarr | `gluetun:7878` | `radarr:7878` |
-| Jellyseerr → Sonarr | Settings ▸ Services | `gluetun:8989` | `sonarr:8989` |
-| Jellyseerr → Radarr | Settings ▸ Services | `gluetun:7878` | `radarr:7878` |
+| Seerr → Sonarr | Settings ▸ Services | `gluetun:8989` | `sonarr:8989` |
+| Seerr → Radarr | Settings ▸ Services | `gluetun:7878` | `radarr:7878` |
 
 > Prowlarr stays in the VPN namespace, so within Prowlarr the FlareSolverr proxy
 > stays `localhost:8191` (unchanged). Prowlarr reaches the bridge-side Sonarr/Radarr
@@ -105,7 +105,7 @@ for pair in "8989:$SK" "7878:$RK"; do
   # inspect, then PUT each client back with field host="gluetun"
 done
 ```
-(qBit/SAB hosts and the Prowlarr/Bazarr/Jellyseerr URLs are easiest to flip in each
+(qBit/SAB hosts and the Prowlarr/Bazarr/Seerr URLs are easiest to flip in each
 UI — they are a handful of fields. Do the UI route unless you want to script all.)
 
 ## Verification (all must pass before merge)
@@ -113,9 +113,9 @@ UI — they are a handful of fields. Do the UI route unless you want to script a
 1. `docker ps` — sonarr/radarr **healthy**, on `arr-stack` (`docker inspect sonarr --format '{{json .NetworkSettings.Networks}}'` shows `172.20.0.10`, no `service:gluetun`).
 2. Sonarr/Radarr **Settings ▸ Download Clients ▸ Test** → green (reaching `gluetun:8085`/`8080`).
 3. Prowlarr **Settings ▸ Apps ▸ Test** both → green (reaching `sonarr`/`radarr`).
-4. Bazarr + Jellyseerr → Sonarr/Radarr connections test green.
-5. Jellyseerr: no `Unable to get queue` errors for 10 min (`docker logs seerr --since 10m | grep -i "download tracker"` → empty).
-6. End-to-end: request a test title in Jellyseerr → it reaches Radarr → grabs → qBit downloads → imports.
+4. Bazarr + Seerr → Sonarr/Radarr connections test green.
+5. Seerr: no `Unable to get queue` errors for 10 min (`docker logs seerr --since 10m | grep -i "download tracker"` → empty).
+6. End-to-end: request a test title in Seerr → it reaches Radarr → grabs → qBit downloads → imports.
 7. `npm run test:e2e` — all 14 pass (run in background).
 8. **VPN-still-protects check:** `docker exec qbittorrent curl -s ifconfig.me` returns the **VPN** IP, not home. `docker exec prowlarr curl -s ifconfig.me` returns the **VPN** IP. (Sonarr/Radarr will now show the home IP — expected.)
 
@@ -136,4 +136,4 @@ docker exec traefik kill -HUP 1 || docker restart traefik
   per-link Test buttons in step 2–4 and the E2E run.
 - **Sonarr/Radarr metadata now uses the home IP** — benign (TVDB/TMDB lookups only).
 - **Prowlarr still flaps with the VPN** — acceptable: Prowlarr↔Sonarr/Radarr sync is
-  not real-time and not the user-facing path; the fix targets the Jellyseerr path.
+  not real-time and not the user-facing path; the fix targets the Seerr path.

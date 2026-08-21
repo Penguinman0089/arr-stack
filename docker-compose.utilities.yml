@@ -8,12 +8,23 @@
 #########################
 # Volumes               #
 #########################
+# Pinned to their existing physical names for the same reason as the volumes
+# in docker-compose.arr-stack.yml — see the long comment there. Short version:
+# without `name:`, the physical volume is named after the deploy directory,
+# so renaming that directory silently swaps in empty volumes rather than
+# failing. These carry the Uptime Kuma history, Beszel metrics and diun's
+# seen-tags DB, all of which are annoying to lose and easy to lose silently.
 volumes:
   duc-index:
+    name: arr-stack_duc-index
   uptime-kuma-data:
+    name: arr-stack_uptime-kuma-data
   beszel-data:
+    name: arr-stack_beszel-data
   diun-data:
+    name: arr-stack_diun-data
   configarr-repos:
+    name: arr-stack_configarr-repos
 
 #########################
 # Networks              #
@@ -79,9 +90,15 @@ services:
   # labelled gluetun.dependent=true that is Exited OR was started before
   # gluetun's current start (stale netns), both on startup and each time gluetun
   # becomes healthy again. No web UI. Runs silently in background.
+  #
+  # KNOWN LIMIT: this only covers a gluetun RESTART. If gluetun is RECREATED
+  # (config change + compose up), dependents still reference the old container
+  # ID and docker restart fails ("joining network namespace ... No such
+  # container") — the watcher logs the failure with the compose command to run.
+  # See TROUBLESHOOTING.md "After a Gluetun RECREATE".
   # ═══════════════════════════════════════════════════════════════════════════
   gluetun-recover:
-    image: docker:26.1-cli
+    image: docker:29.7-cli
     container_name: gluetun-recover
     <<: *default-security
     volumes:
@@ -118,7 +135,13 @@ services:
             if [ "$$state" = exited ] || before "$$started" "$$g"; then
               name=$$(docker inspect -f '{{.Name}}' "$$c")
               echo "gluetun-recover: restarting$$name (state=$$state, stale netns)"
-              docker restart "$$c"
+              # docker restart only works after a gluetun RESTART (same container
+              # ID). After a gluetun RECREATE the dependent's HostConfig still
+              # points at the old ID and restart fails with "joining network
+              # namespace ... No such container" — only a compose-level recreate
+              # of the dependent can fix that, and this watcher can't run
+              # compose. Log loudly instead of failing silently.
+              docker restart "$$c" || echo "gluetun-recover: FAILED to restart$$name — if gluetun was RECREATED (not restarted), run: docker compose -f docker-compose.arr-stack.yml up -d --force-recreate $${name#/}"
             fi
           done
         }
@@ -268,6 +291,24 @@ services:
       - DIUN_WATCH_SCHEDULE=${DIUN_SCHEDULE:-0 6 * * *}
       - DIUN_PROVIDERS_DOCKER=true
       - DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT=true
+      # Watch the whole repo, not just the pinned tag: without WATCHREPO diun
+      # only reports digest changes of e.g. :v3.3.0 itself, so a new v3.4.1
+      # release never triggers a notification (this is how the Seerr v3.4.x
+      # releases went unnoticed). INCLUDETAGS limits the scan to plain semver
+      # tags so nightlies/betas/rc tags stay silent. $$ = literal $ (compose
+      # interpolation escape). SORTTAGS+MAXTAGS cap each scan at the 25 highest
+      # semver tags per repo — without the cap diun fetches manifests for EVERY
+      # matching tag of all ~24 repos daily (registry rate-limit bait).
+      #
+      # NOTE: diun's "first check" (which suppresses notifications) is tracked
+      # per REPO, not per tag — enabling WATCHREPO against an existing /data
+      # DB notifies for every historical tag it hasn't seen (hundreds). When
+      # turning this on, move the old DB aside first so the first scan primes
+      # silently:  mv /data/diun.db /data/diun.db.pre-watchrepo  (then restart)
+      - DIUN_DEFAULTS_WATCHREPO=true
+      - DIUN_DEFAULTS_INCLUDETAGS=^v?\d+\.\d+\.\d+$$
+      - DIUN_DEFAULTS_SORTTAGS=semver
+      - DIUN_DEFAULTS_MAXTAGS=25
       - DIUN_NOTIF_WEBHOOK_ENDPOINT=${DIUN_WEBHOOK_URL}
       - DIUN_NOTIF_WEBHOOK_METHOD=POST
       - DIUN_NOTIF_WEBHOOK_HEADERS_0_NAME=Content-Type
@@ -281,7 +322,7 @@ services:
   # Dry run first: docker compose -f docker-compose.utilities.yml run --rm -e DRY_RUN=true configarr
   # ═══════════════════════════════════════════════════════════════════════════
   configarr:
-    image: ghcr.io/raydak-labs/configarr:1.24.0
+    image: ghcr.io/raydak-labs/configarr:1.30.2
     container_name: configarr
     <<: *default-security
     cap_add:
