@@ -176,6 +176,8 @@ services:
       - CHOWN           # Create subdirs in data volume on first run
       - DAC_OVERRIDE    # Write to root-owned volume directories
       - FOWNER          # Set ownership on created files
+      - SETUID          # Embedded MariaDB drops privileges on startup
+      - SETGID
     dns:
       - 172.20.0.5  # Pi-hole, so .lan domains resolve (e.g. homeassistant.lan notifications)
     restart: always
