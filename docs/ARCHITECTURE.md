@@ -91,6 +91,7 @@ arr-stack network (172.20.0.0/24)
 │ 172.20.0.9   │ Bazarr       │ Subtitles                      │ Core             │
 │ 172.20.0.7   │ Lidarr       │ Music manager (bridge, not VPN)│ Optional         │
 │ 172.20.0.22  │ Readarr      │ Book manager (bridge, not VPN) │ Optional         │
+│ 172.20.0.24  │ Whisparr     │ Adult scene manager (bridge, not VPN)│ Optional   │
 │ 172.20.0.23  │ Audiobookshelf│ Audiobook/podcast server       │ Optional         │
 │ 172.20.0.10  │ Sonarr       │ TV manager (bridge, not VPN)   │ Core             │
 │ 172.20.0.11  │ Radarr       │ Movie manager (bridge, not VPN)│ Core             │

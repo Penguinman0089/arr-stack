@@ -49,6 +49,8 @@ volumes:
     name: arr-stack_lidarr-config
   readarr-config:
     name: arr-stack_readarr-config
+  whisparr-config:
+    name: arr-stack_whisparr-config
   audiobookshelf-config:
     name: arr-stack_audiobookshelf-config
   audiobookshelf-metadata:
@@ -610,6 +612,40 @@ services:
     logging: *default-logging
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8787/"]
+      interval: 3m
+      timeout: 10s
+      retries: 2
+      start_period: 60s
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # WHISPARR - Adult scene/movie collection manager. Same VPN topology as
+  # Sonarr/Radarr/Lidarr. No linuxserver.io image exists, so this uses hotio's
+  # build instead (same s6-overlay init, same lsio-security caps). No tagged
+  # stable release upstream - pinned to a current v3 develop build.
+  # Access: whisparr.lan | whisparr.yourdomain.com | NAS_IP:6969
+  # ═══════════════════════════════════════════════════════════════════════════
+  whisparr:
+    image: ghcr.io/hotio/whisparr:v3-develop-v3.3.9
+    container_name: whisparr
+    <<: *lsio-security
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - UMASK=002
+      - TZ=${TZ}
+      - WEBUI_PORTS=6969/tcp
+    ports:
+      - "6969:6969"
+    volumes:
+      - whisparr-config:/config
+      - ${MEDIA_ROOT}:/data
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.24
+    restart: always
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6969/"]
       interval: 3m
       timeout: 10s
       retries: 2

@@ -23,6 +23,7 @@
 | Bazarr | `NAS_IP:6767` | `http://bazarr.lan` | — |
 | Lidarr | `NAS_IP:8686` | `http://lidarr.lan` | — |
 | Readarr | `NAS_IP:8787` | `http://readarr.lan` | — |
+| Whisparr | `NAS_IP:6969` | `http://whisparr.lan` | — |
 | Audiobookshelf | `NAS_IP:13378` | `http://audiobookshelf.lan` | — |
 | qBittorrent | `NAS_IP:8085` | `http://qbit.lan` | — |
 | SABnzbd | `NAS_IP:8082` | `http://sabnzbd.lan` | — |
@@ -53,6 +54,7 @@
 | Bazarr | 172.20.0.9 | 6767 | Subtitles |
 | Lidarr | 172.20.0.7 | 8686 | Music management |
 | Readarr | 172.20.0.22 | 8787 | Book/audiobook management |
+| Whisparr | 172.20.0.24 | 6969 | Adult scene/movie management |
 | Audiobookshelf | 172.20.0.23 | 80 | Audiobook/podcast server |
 | ↳ FlareSolverr | (via Gluetun) | 8191 | Cloudflare bypass (inactive until added as an Indexer Proxy in Prowlarr — see [APP-CONFIG.md](APP-CONFIG.md#46-prowlarr-indexer-manager)) |
 

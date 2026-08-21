@@ -53,6 +53,11 @@ http:
       entryPoints: [web]
       service: readarr-lan
 
+    whisparr-lan:
+      rule: "Host(`whisparr.lan`)"
+      entryPoints: [web]
+      service: whisparr-lan
+
     audiobookshelf-lan:
       rule: "Host(`audiobookshelf.lan`)"
       entryPoints: [web]
@@ -150,6 +155,11 @@ http:
       loadBalancer:
         servers:
           - url: "http://172.20.0.22:8787"
+
+    whisparr-lan:
+      loadBalancer:
+        servers:
+          - url: "http://172.20.0.24:6969"
 
     audiobookshelf-lan:
       loadBalancer:

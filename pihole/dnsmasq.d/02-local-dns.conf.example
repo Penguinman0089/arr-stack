@@ -20,6 +20,7 @@ address=/prowlarr.lan/TRAEFIK_LAN_IP
 address=/bazarr.lan/TRAEFIK_LAN_IP
 address=/lidarr.lan/TRAEFIK_LAN_IP
 address=/readarr.lan/TRAEFIK_LAN_IP
+address=/whisparr.lan/TRAEFIK_LAN_IP
 
 # Audiobook/podcast server
 address=/audiobookshelf.lan/TRAEFIK_LAN_IP
