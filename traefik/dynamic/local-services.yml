@@ -43,6 +43,21 @@ http:
       entryPoints: [web]
       service: bazarr-lan
 
+    lidarr-lan:
+      rule: "Host(`lidarr.lan`)"
+      entryPoints: [web]
+      service: lidarr-lan
+
+    readarr-lan:
+      rule: "Host(`readarr.lan`)"
+      entryPoints: [web]
+      service: readarr-lan
+
+    audiobookshelf-lan:
+      rule: "Host(`audiobookshelf.lan`)"
+      entryPoints: [web]
+      service: audiobookshelf-lan
+
     # === Download Clients ===
     qbit-lan:
       rule: "Host(`qbit.lan`)"
@@ -125,6 +140,21 @@ http:
       loadBalancer:
         servers:
           - url: "http://172.20.0.9:6767"
+
+    lidarr-lan:
+      loadBalancer:
+        servers:
+          - url: "http://172.20.0.7:8686"
+
+    readarr-lan:
+      loadBalancer:
+        servers:
+          - url: "http://172.20.0.22:8787"
+
+    audiobookshelf-lan:
+      loadBalancer:
+        servers:
+          - url: "http://172.20.0.23:80"
 
     # === Download Clients (via Gluetun) ===
     qbit-lan:

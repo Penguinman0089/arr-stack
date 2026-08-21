@@ -45,6 +45,14 @@ volumes:
     name: arr-stack_seerr-config
   bazarr-config:
     name: arr-stack_bazarr-config
+  lidarr-config:
+    name: arr-stack_lidarr-config
+  readarr-config:
+    name: arr-stack_readarr-config
+  audiobookshelf-config:
+    name: arr-stack_audiobookshelf-config
+  audiobookshelf-metadata:
+    name: arr-stack_audiobookshelf-metadata
   dnscrypt-config:
     name: arr-stack_dnscrypt-config
   pihole-etc-pihole:
@@ -544,4 +552,99 @@ services:
       timeout: 60s
       retries: 2
       start_period: 60s
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # LIDARR - Music collection manager. Searches for albums, sends to download
+  # client, and organizes completed files. Same VPN topology as Sonarr/Radarr:
+  # only talks to metadata providers (MusicBrainz) and internal services.
+  # Access: lidarr.lan | lidarr.yourdomain.com | NAS_IP:8686
+  # ═══════════════════════════════════════════════════════════════════════════
+  lidarr:
+    image: lscr.io/linuxserver/lidarr:3.1.0
+    container_name: lidarr
+    <<: *lsio-security
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - "8686:8686"
+    volumes:
+      - lidarr-config:/config
+      - ${MEDIA_ROOT}:/data
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.7
+    restart: always
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8686/"]
+      interval: 3m
+      timeout: 10s
+      retries: 2
+      start_period: 60s
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # READARR - Book/audiobook collection manager. Same VPN topology as
+  # Sonarr/Radarr/Lidarr. Upstream has no tagged stable release (perpetual
+  # 0.4.x development branch) - pinned to the current develop build.
+  # Access: readarr.lan | readarr.yourdomain.com | NAS_IP:8787
+  # ═══════════════════════════════════════════════════════════════════════════
+  readarr:
+    image: lscr.io/linuxserver/readarr:0.4.18-develop
+    container_name: readarr
+    <<: *lsio-security
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    ports:
+      - "8787:8787"
+    volumes:
+      - readarr-config:/config
+      - ${MEDIA_ROOT}:/data
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.22
+    restart: always
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8787/"]
+      interval: 3m
+      timeout: 10s
+      retries: 2
+      start_period: 60s
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # AUDIOBOOKSHELF - Audiobook and podcast server. Purpose-built for
+  # audiobooks: per-user resume position, variable playback speed, and
+  # dedicated mobile apps (unlike using Plex's Music library as a workaround).
+  # Access: audiobookshelf.lan | NAS_IP:13378
+  # ═══════════════════════════════════════════════════════════════════════════
+  audiobookshelf:
+    image: advplyr/audiobookshelf:2.36.0
+    container_name: audiobookshelf
+    <<: *default-security
+    cap_add:
+      - CHOWN           # Create config/metadata dirs on first run
+      - DAC_OVERRIDE    # Write to root-owned volume directories
+    environment:
+      - TZ=${TZ}
+    ports:
+      - "13378:80"
+    volumes:
+      - audiobookshelf-config:/config
+      - audiobookshelf-metadata:/metadata
+      - ${MEDIA_ROOT}/audiobooks:/audiobooks:ro
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.23
+    restart: always
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/healthcheck"]
+      interval: 1m
+      timeout: 10s
+      retries: 2
+      start_period: 30s
 

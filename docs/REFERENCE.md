@@ -21,6 +21,9 @@
 | Radarr | `NAS_IP:7878` | `http://radarr.lan` | — |
 | Prowlarr | `NAS_IP:9696` | `http://prowlarr.lan` | — |
 | Bazarr | `NAS_IP:6767` | `http://bazarr.lan` | — |
+| Lidarr | `NAS_IP:8686` | `http://lidarr.lan` | — |
+| Readarr | `NAS_IP:8787` | `http://readarr.lan` | — |
+| Audiobookshelf | `NAS_IP:13378` | `http://audiobookshelf.lan` | — |
 | qBittorrent | `NAS_IP:8085` | `http://qbit.lan` | — |
 | SABnzbd | `NAS_IP:8082` | `http://sabnzbd.lan` | — |
 | Pi-hole | `NAS_IP:8081/admin` | `http://pihole.lan/admin` | — |
@@ -48,6 +51,9 @@
 | Pi-hole | 172.20.0.5 | 8081 | DNS ad-blocking (`/admin`) |
 | Seerr | 172.20.0.8 | 5055 | Request management |
 | Bazarr | 172.20.0.9 | 6767 | Subtitles |
+| Lidarr | 172.20.0.7 | 8686 | Music management |
+| Readarr | 172.20.0.22 | 8787 | Book/audiobook management |
+| Audiobookshelf | 172.20.0.23 | 80 | Audiobook/podcast server |
 | ↳ FlareSolverr | (via Gluetun) | 8191 | Cloudflare bypass (inactive until added as an Indexer Proxy in Prowlarr — see [APP-CONFIG.md](APP-CONFIG.md#46-prowlarr-indexer-manager)) |
 
 **+ local DNS** (traefik.yml):
