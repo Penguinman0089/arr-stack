@@ -130,6 +130,11 @@ services:
       - TZ=${TZ}
       - DNS_ADDRESS=172.20.0.5
       - FIREWALL_OUTBOUND_SUBNETS=${LAN_SUBNET},172.20.0.0/24,10.8.1.0/24
+      # Sonarr/Radarr live on the bridge now, so reaching qBittorrent/SABnzbd/
+      # Prowlarr means an actual inbound connection through gluetun's interface,
+      # not loopback like before the migration. Gluetun drops all inbound traffic
+      # on its main interface by default; these ports must be explicitly allowed.
+      - FIREWALL_INPUT_PORTS=8085,8080,9696
     ports:
       # Ports for services using network_mode: "service:gluetun"
       # Enables direct local access without Traefik (http://NAS_IP:PORT)
