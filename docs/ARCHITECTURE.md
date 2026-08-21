@@ -99,6 +99,9 @@ arr-stack network (172.20.0.0/24)
 │ 172.20.0.14  │ duc          │ Disk usage                     │ Optional         │
 │ 172.20.0.15  │ Beszel       │ System monitoring              │ Optional         │
 │ 172.20.0.16  │ DIUN         │ Image update notifier          │ Optional         │
+│ 172.20.0.17  │ Tautulli     │ Plex monitoring/analytics      │ Optional         │
+│ 172.20.0.19  │ Homarr       │ Service dashboard              │ Optional         │
+│ 172.20.0.21  │ Landing Page │ Root domain placeholder        │ Optional         │
 ───────────────────────────────────────────────────────────────────────────────────
 ```
 

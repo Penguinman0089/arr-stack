@@ -15,6 +15,9 @@ docker compose -f docker-compose.utilities.yml up -d
 | **Beszel** | System metrics (CPU, RAM, disk, containers) | http://beszel.lan |
 | **duc** | Disk usage analyzer (treemap UI) | http://duc.lan |
 | **Configarr** | Syncs TRaSH Guides quality profiles to Sonarr/Radarr | Run manually |
+| **Tautulli** | Plex monitoring and analytics (watch history, stats) | http://tautulli.lan |
+| **Homarr** | Service dashboard/homepage | http://homarr.lan |
+| **Landing Page** | Placeholder page for the root domain (Cloudflare Tunnel) | `yourdomain.com` |
 
 > **Want Docker log viewing?** [Dozzle](https://dozzle.dev/) is a lightweight web UI for viewing container logs in real-time. Not included in the stack, but easy to add if you want it.
 

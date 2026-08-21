@@ -25,6 +25,14 @@ volumes:
     name: arr-stack_diun-data
   configarr-repos:
     name: arr-stack_configarr-repos
+  tautulli-config:
+    name: arr-stack_tautulli-config
+  homarr-config:
+    name: arr-stack_homarr-config
+  homarr-data:
+    name: arr-stack_homarr-data
+  landing-page:
+    name: arr-stack_landing-page
 
 #########################
 # Networks              #
@@ -339,3 +347,93 @@ services:
       - SONARR_API_KEY=${SONARR_API_KEY}
       - RADARR_API_KEY=${RADARR_API_KEY}
     logging: *default-logging
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # TAUTULLI - Plex monitoring and analytics. Track watch history, user stats,
+  # streaming quality, and library growth. Connects to Plex via API.
+  # Access: tautulli.lan | NAS_IP:8181 (LAN-only)
+  # ═══════════════════════════════════════════════════════════════════════════
+  tautulli:
+    image: lscr.io/linuxserver/tautulli:latest
+    container_name: tautulli
+    <<: *default-security
+    cap_add:
+      - CHOWN           # s6-overlay needs this to switch users during init
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+    restart: always
+    ports:
+      - "8181:8181"
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.17
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - tautulli-config:/config
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "curl", "-sSf", "http://localhost:8181/status", "-o", "/dev/null"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # HOMARR - Service dashboard/homepage. Quick-access to all your services.
+  # Access: homarr.lan | NAS_IP:7575 (LAN-only)
+  # ═══════════════════════════════════════════════════════════════════════════
+  homarr:
+    image: ghcr.io/homarr-labs/homarr:latest
+    container_name: homarr
+    <<: *default-security
+    cap_add:
+      - CHOWN           # Create config/data dirs on first run
+      - DAC_OVERRIDE    # Write to root-owned volume directories
+    restart: always
+    ports:
+      - "7575:7575"
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.19
+    environment:
+      - TZ=${TZ}
+      - SECRET_ENCRYPTION_KEY=${HOMARR_SECRET_KEY}
+    volumes:
+      - homarr-config:/appdata/configs
+      - homarr-data:/appdata/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:7575"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # LANDING PAGE - "Get off my lawn" page for the root domain.
+  # Access: yourdomain.com (via Cloudflare Tunnel)
+  # ═══════════════════════════════════════════════════════════════════════════
+  landing-page:
+    image: nginx:latest
+    container_name: landing-page
+    <<: *default-security
+    cap_add:
+      - NET_BIND_SERVICE  # nginx binds port 80 as root
+    restart: always
+    networks:
+      arr-stack:
+        ipv4_address: 172.20.0.21
+    volumes:
+      - ./landing:/usr/share/nginx/html:ro
+    logging: *default-logging
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost/ || exit 1"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

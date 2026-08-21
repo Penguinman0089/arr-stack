@@ -76,6 +76,9 @@
 | duc | 172.20.0.14 | 8838 | Disk usage |
 | Beszel | 172.20.0.15 | 8090 | System monitoring |
 | DIUN | 172.20.0.16 | — | Image update notifier (no UI) |
+| Tautulli | 172.20.0.17 | 8181 | Plex monitoring/analytics |
+| Homarr | 172.20.0.19 | 7575 | Service dashboard |
+| Landing Page | 172.20.0.21 | 80 | Root domain placeholder (via Cloudflared) |
 | Configarr | — | — | TRaSH Guides sync (one-shot, no UI) |
 
 ### Service Connection Guide
