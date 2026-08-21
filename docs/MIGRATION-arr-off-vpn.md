@@ -58,8 +58,8 @@ branch. New connection targets:
 | Sonarr → SABnzbd | download client | `localhost:8080` | `gluetun:8080` |
 | Radarr → qBittorrent | download client | `localhost:8085` | `gluetun:8085` |
 | Radarr → SABnzbd | download client | `localhost:8080` | `gluetun:8080` |
-| Prowlarr → Sonarr | Settings ▸ Apps, "Sonarr server" | `localhost:8989` | `sonarr:8989` |
-| Prowlarr → Radarr | Settings ▸ Apps, "Radarr server" | `localhost:7878` | `radarr:7878` |
+| Prowlarr → Sonarr | Settings ▸ Apps, "Sonarr server" | `localhost:8989` | **`172.20.0.10:8989`** |
+| Prowlarr → Radarr | Settings ▸ Apps, "Radarr server" | `localhost:7878` | **`172.20.0.11:7878`** |
 | Prowlarr → Sonarr/Radarr | the "Prowlarr Server" URL field in each app | `localhost:9696` | `gluetun:9696` |
 | Bazarr → Sonarr | Settings ▸ Sonarr | `gluetun:8989` | `sonarr:8989` |
 | Bazarr → Radarr | Settings ▸ Radarr | `gluetun:7878` | `radarr:7878` |
@@ -68,7 +68,12 @@ branch. New connection targets:
 
 > Prowlarr stays in the VPN namespace, so within Prowlarr the FlareSolverr proxy
 > stays `localhost:8191` (unchanged). Prowlarr reaches the bridge-side Sonarr/Radarr
-> because gluetun's `FIREWALL_OUTBOUND_SUBNETS` already allows `172.20.0.0/24`.
+> because gluetun's `FIREWALL_OUTBOUND_SUBNETS` already allows `172.20.0.0/24` —
+> but it must be by **IP, not hostname**. Prowlarr shares gluetun's network
+> namespace, which uses Pi-hole (not Docker's embedded DNS) as its resolver, so
+> Docker container names like `sonarr`/`radarr` do not resolve from inside
+> Prowlarr even though they're reachable by IP. Confirmed on the NAS: the
+> hostname form fails with "Name does not resolve".
 
 ## Deploy procedure (branch-first, per CLAUDE.md)
 
