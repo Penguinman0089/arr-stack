@@ -48,7 +48,7 @@ docker restart uptime-kuma
 | Beszel | HTTP | `http://172.20.0.15:8090` | Use static IP |
 | duc | HTTP | `http://duc:80` | Has own IP |
 | FlareSolverr | HTTP | `http://172.20.0.3:8191` | Via Gluetun |
-| Jellyfin | HTTP | `http://jellyfin:8096/health` | Has own IP |
+| Plex | HTTP | `http://plex:32400/identity` | Has own IP |
 | Pi-hole | HTTP | `http://pihole:80/admin` | Has own IP |
 | Prowlarr | HTTP | `http://gluetun:9696/ping` | Via Gluetun |
 | qBittorrent | HTTP | `http://gluetun:8085` | Via Gluetun |
@@ -59,7 +59,7 @@ docker restart uptime-kuma
 
 > **Why `gluetun` for qBittorrent/SABnzbd/Prowlarr?** Those share Gluetun's network (`network_mode: service:gluetun`) and don't get their own Docker DNS entries — use the `gluetun` hostname or its static IP `172.20.0.3`. Sonarr/Radarr run on the bridge with their own names/IPs, so monitor them directly.
 
-> **Optional extras**: You can also add monitors for external URLs (e.g., `https://jellyfin.yourdomain.com`), Home Assistant, or other devices — these won't trigger pre-commit warnings.
+> **Optional extras**: You can also add monitors for external URLs (e.g., `https://plex.yourdomain.com`), Home Assistant, or other devices — these won't trigger pre-commit warnings.
 
 ## Beszel Setup
 

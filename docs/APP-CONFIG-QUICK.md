@@ -10,8 +10,8 @@ The [configure-apps.sh](../scripts/configure-apps.sh) script automates ~22 confi
 
 Work through these in order. Each app needs you to create an account or complete a first-run wizard before anything else works.
 
-**Jellyfin** — `http://NAS_IP:8096`
-Complete the setup wizard (language, admin user, etc.). Skip adding libraries for now — you'll do that in Step 3.
+**Plex** — `http://NAS_IP:32400/web`
+Complete the setup wizard (sign in with your Plex account, claim the server). Skip adding libraries for now — you'll do that in Step 3.
 
 **qBittorrent** — `http://NAS_IP:8085`
 Get the temporary password:
@@ -70,12 +70,12 @@ Preview what it will do without making changes:
 
 The script handles qBittorrent, Sonarr, Radarr, Prowlarr, and Bazarr. Complete these remaining services in order:
 
-### 1. Jellyfin — Add libraries
+### 1. Plex — Add libraries
 
 - Movies → Content type "Movies" → Folder `/data/media/movies`
-- TV Shows → Content type "Shows" → Folder `/data/media/tv`
+- TV Shows → Content type "TV Shows" → Folder `/data/media/tv`
 
-> **Optional:** [Enable hardware transcoding](APP-CONFIG-ADVANCED.md#hardware-transcoding-intel-quick-sync) for GPU-accelerated playback (recommended for Ugreen NAS).
+> **Optional:** [Enable hardware transcoding](APP-CONFIG-ADVANCED.md#hardware-transcoding-intel-quick-sync) for GPU-accelerated playback (recommended for Ugreen NAS, requires Plex Pass).
 
 ### 2. SABnzbd — Set download folders (skip if not using Usenet)
 
@@ -90,18 +90,18 @@ Config (⚙️) → Folders → set **absolute paths**:
 1. Indexers (left sidebar) → + → search by name → add your torrent indexers
 2. If using Usenet: add a Usenet indexer the same way (e.g., NZBGeek, DrunkenSlug)
 
-### 4. Seerr — Connect to Jellyfin and *arrs
+### 4. Seerr — Connect to Plex and *arrs
 
 1. Open `http://NAS_IP:5055`
-2. Sign in with Jellyfin: URL `http://jellyfin:8096`, enter your Jellyfin credentials
-3. Settings → Jellyfin → set **External URL** to `http://jellyfin.lan` (or `http://NAS_IP:8096`) — makes "Play on Jellyfin" links work in your browser
+2. Sign in with Plex: click **Sign In with Plex** and authorize at plex.tv
+3. Settings → Plex → set **External URL** to `http://plex.lan` (or `http://NAS_IP:32400`) — makes "Play on Plex" links work in your browser
 4. Settings → Services → Add Radarr:
    - Hostname: `radarr`, Port: `7878`, Quality Profile: `UHD Bluray + WEB`
    - External URL: `http://radarr.lan` (or `http://NAS_IP:7878`)
 5. Settings → Services → Add Sonarr:
    - Hostname: `sonarr`, Port: `8989`, Quality Profile: `Ultra-HD`
    - External URL: `http://sonarr.lan` (or `http://NAS_IP:8989`)
-6. Settings → Jellyfin → toggle **Movies** and **TV** on → Save
+6. Settings → Plex → toggle **Movies** and **TV** on → Save
 7. Click **Sync Libraries** then **Start Scan**
 
 > **Hostnames, not `gluetun`:** Sonarr and Radarr sit on the `arr-stack` bridge with their own Docker DNS names, so Seerr reaches them directly. `gluetun` only works for services genuinely inside the VPN namespace — qBittorrent and SABnzbd — and it refuses connections on 8989/7878.

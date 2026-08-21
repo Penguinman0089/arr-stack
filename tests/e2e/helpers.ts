@@ -23,7 +23,7 @@ export function screenshotPath(name: string) {
 // ─── Service ports ───────────────────────────────────────────────────────────
 
 export const PORTS = {
-  jellyfin: 8096,
+  plex: 32400,
   sonarr: 8989,
   radarr: 7878,
   prowlarr: 9696,

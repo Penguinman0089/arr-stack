@@ -22,14 +22,14 @@ import { HOST, requireStackReachable, dockerInspect } from './helpers';
 const TRAEFIK_LAN_IP = process.env.TRAEFIK_LAN_IP;
 
 test.describe('DNS resolution', () => {
-  test('Pi-hole resolves jellyfin.lan to the Traefik macvlan IP', () => {
+  test('Pi-hole resolves plex.lan to the Traefik macvlan IP', () => {
     test.skip(!TRAEFIK_LAN_IP, 'TRAEFIK_LAN_IP not set in .env.e2e');
 
     // Pi-hole's DNS is published on ${NAS_IP}:53, so this needs no docker exec
     // and works from a dev machine as well as on the NAS.
     let resolved: string;
     try {
-      resolved = execFileSync('dig', [`@${HOST}`, 'jellyfin.lan', '+short'], { encoding: 'utf8', timeout: 5_000 }).trim();
+      resolved = execFileSync('dig', [`@${HOST}`, 'plex.lan', '+short'], { encoding: 'utf8', timeout: 5_000 }).trim();
     } catch (err) {
       test.skip(true, `dig unavailable or query failed: ${err}`);
       return;
@@ -49,7 +49,7 @@ test.describe('Traefik routing', () => {
   // DNS suite above covers that separately.
   for (const [domain, requestPath, expectedMarker] of [
     // Both unauthenticated, so no API key is needed to prove routing works.
-    ['jellyfin.lan', '/System/Info/Public', 'Jellyfin'],
+    ['plex.lan', '/identity', 'MediaContainer'],
     ['sonarr.lan', '/', 'Sonarr'],
   ] as const) {
     test(`${domain} routes end-to-end to its real backend`, async ({ request }) => {

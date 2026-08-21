@@ -8,7 +8,7 @@ When someone requests a movie or TV show, here's what happens:
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌───────────┐     ┌─────────────┐     ┌──────────┐
-│   Seerr     │────▶│ Sonarr/Radarr│────▶│ Prowlarr  │────▶│ qBittorrent │────▶│ Jellyfin │
+│   Seerr     │────▶│ Sonarr/Radarr│────▶│ Prowlarr  │────▶│ qBittorrent │────▶│   Plex   │
 │ (request)   │     │ (manage)     │     │ (indexers)│     │   SABnzbd   │     │ (watch)  │
 │             │     │              │     │           │     │ (download)  │     │          │
 └─────────────┘     └──────────────┘     └───────────┘     └─────────────┘     └──────────┘
@@ -17,14 +17,14 @@ When someone requests a movie or TV show, here's what happens:
                                           Through VPN (Gluetun)               Not through VPN
 ```
 
-> Only **Prowlarr** and the **download clients** (qBittorrent/SABnzbd) run through the VPN. Seerr, Sonarr, Radarr and Jellyfin run on the bridge — Sonarr/Radarr only contact metadata providers and internal services, so they need no VPN.
+> Only **Prowlarr** and the **download clients** (qBittorrent/SABnzbd) run through the VPN. Seerr, Sonarr, Radarr and Plex run on the bridge — Sonarr/Radarr only contact metadata providers and internal services, so they need no VPN.
 
 1. **Seerr** - User requests a show or movie
 2. **Sonarr/Radarr** - Searches for releases, sends to download client
 3. **Prowlarr** - Provides indexers (torrent + Usenet) to Sonarr/Radarr
 4. **qBittorrent** - Downloads torrents (through VPN)
 5. **SABnzbd** - Downloads from Usenet (through VPN)
-6. **Jellyfin** - Streams the completed files
+6. **Plex** - Streams the completed files
 
 > **Why both qBittorrent and SABnzbd?** Torrents are free but can be slow/unreliable. Usenet costs ~$5/month but is faster, more reliable, and has no ratio requirements. Most users configure both - Sonarr/Radarr will try Usenet first, fall back to torrents.
 
@@ -32,7 +32,7 @@ When someone requests a movie or TV show, here's what happens:
 
 **Why VPN?** Your ISP can see BitTorrent traffic. The VPN encrypts this so they only see "encrypted traffic to VPN server".
 
-**Why not everything through VPN?** Streaming from Jellyfin doesn't need protection (you're watching your own files) and VPN would slow it down.
+**Why not everything through VPN?** Streaming from Plex doesn't need protection (you're watching your own files) and VPN would slow it down.
 
 ```
                               ┌─────────────────────────────────────────┐
@@ -48,7 +48,7 @@ Internet ◄───VPN Tunnel───────│  qBit   SABnzbd   Prowla
                                     ─ ─ ─ ─ ─ ─ ─│─ ─ ─ ─ ─ ─ ─
                                                  │
                               ┌──────────────────┴──────────────────────┐
-Internet ◄──Cloudflare Tunnel─│  Jellyfin    Seerr                     │
+Internet ◄──Cloudflare Tunnel─│  Plex        Seerr                     │
   (remote)                    │  (stream)    (requests)                 │
                               │                                         │
 LAN only ◄────────────────────│  Pi-hole   Sonarr    Radarr   Bazarr   │
@@ -86,7 +86,7 @@ arr-stack network (172.20.0.0/24)
 │ IP           │ Service      │ Notes                          │ Required for     │
 ├──────────────┼──────────────┼────────────────────────────────┼──────────────────│
 │ 172.20.0.3   │ Gluetun      │ VPN gateway (qBit/SAB/Prowlarr)│ Core             │
-│ 172.20.0.4   │ Jellyfin     │ Media server                   │ Core             │
+│ 172.20.0.4   │ Plex         │ Media server                   │ Core             │
 │ 172.20.0.8   │ Seerr        │ Request portal                 │ Core             │
 │ 172.20.0.9   │ Bazarr       │ Subtitles                      │ Core             │
 │ 172.20.0.10  │ Sonarr       │ TV manager (bridge, not VPN)   │ Core             │
@@ -109,8 +109,8 @@ arr-stack network (172.20.0.0/24)
 │                             CORE                                         │
 │                      Access via NAS_IP:port                              │
 │  ┌───────────┐  ┌───────────┐  ┌───────────┐  ┌───────────┐            │
-│  │ :8096     │  │ :8989     │  │ :7878     │  │ :5055     │  ...       │
-│  │ Jellyfin  │  │ Sonarr    │  │ Radarr    │  │   Seerr   │            │
+│  │ :32400    │  │ :8989     │  │ :7878     │  │ :5055     │  ...       │
+│  │   Plex    │  │ Sonarr    │  │ Radarr    │  │   Seerr   │            │
 │  └───────────┘  └───────────┘  └───────────┘  └───────────┘            │
 └─────────────────────────────────────────────────────────────────────────┘
                                     │
@@ -120,7 +120,7 @@ arr-stack network (172.20.0.0/24)
 │                          + LOCAL DNS                                     │
 │                      Access via .lan domains                             │
 │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐               │
-│  │ jellyfin.lan  │  │ sonarr.lan    │  │ radarr.lan    │  ...          │
+│  │ plex.lan      │  │ sonarr.lan    │  │ radarr.lan    │  ...          │
 │  └───────────────┘  └───────────────┘  └───────────────┘               │
 │                                                                          │
 │  Your device → Pi-hole (DNS) → Traefik → Service                        │
@@ -135,7 +135,7 @@ arr-stack network (172.20.0.0/24)
 │  ┌─── Path a: Cloudflared (public HTTPS via your domain) ──────────┐    │
 │  │                                                                  │    │
 │  │  ┌─────────────────────┐  ┌─────────────────────┐               │    │
-│  │  │ jellyfin.domain.com │  │ seerr.domain.com     │  ...          │    │
+│  │  │ plex.domain.com     │  │ seerr.domain.com     │  ...          │    │
 │  │  └─────────────────────┘  └─────────────────────┘               │    │
 │  │  Phone → Cloudflare → Tunnel → Traefik → Service                │    │
 │  └──────────────────────────────────────────────────────────────────┘    │
@@ -165,9 +165,9 @@ Two YAML anchors define security profiles in each compose file:
 | Anchor | Used by | Capabilities |
 |--------|---------|-------------|
 | `x-security` | All non-LSIO services | None by default (services add back only what they need) |
-| `x-security-lsio` | Sonarr, Radarr, Prowlarr, qBittorrent, SABnzbd, Bazarr | `CHOWN`, `SETUID`, `SETGID`, `DAC_OVERRIDE` (s6-overlay needs these to switch users during init) |
+| `x-security-lsio` | Plex, Sonarr, Radarr, Prowlarr, qBittorrent, SABnzbd, Bazarr | `CHOWN`, `SETUID`, `SETGID`, `DAC_OVERRIDE` (s6-overlay needs these to switch users during init) |
 
-Services that write to Docker volumes as root add back `CHOWN` + `DAC_OVERRIDE` (Jellyfin, Seerr, Uptime Kuma, DUC, Beszel, DIUN, Configarr). Services with read-only or no volumes don't need any (FlareSolverr, Cloudflared, Traefik, Deunhealth, Beszel-agent).
+Services that write to Docker volumes as root add back `CHOWN` + `DAC_OVERRIDE` (Seerr, Uptime Kuma, DUC, Beszel, DIUN, Configarr). Services with read-only or no volumes don't need any (FlareSolverr, Cloudflared, Traefik, Deunhealth, Beszel-agent).
 
 Additional requirements:
 - **Gluetun** — adds `NET_ADMIN` (required to create VPN tunnel interfaces)

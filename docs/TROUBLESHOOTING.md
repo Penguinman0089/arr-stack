@@ -69,7 +69,7 @@ echo "$DEF" | python3 -c 'import sys,json;d=json.load(sys.stdin);d["enable"]=Fal
 echo "$DEF" | curl -s -X PUT "http://localhost:9696/api/v1/indexer/3?apikey=$PK" -H "Content-Type: application/json" -d @-
 ```
 
-Surfshark's WireGuard key is account-wide, so changing only `VPN_COUNTRIES` is enough — gluetun picks a server in the new country with the same key. No new config from Surfshark is needed. The VPN only covers the download stack (qBittorrent/usenet/indexers/`*arr`), **not** Jellyfin, so a non-UK exit has no downside for playback. Leave it on a non-blocking country (e.g. Netherlands) to avoid recurrence; revert with the `.env` backup if ever needed.
+Surfshark's WireGuard key is account-wide, so changing only `VPN_COUNTRIES` is enough — gluetun picks a server in the new country with the same key. No new config from Surfshark is needed. The VPN only covers the download stack (qBittorrent/usenet/indexers/`*arr`), **not** Plex, so a non-UK exit has no downside for playback. Leave it on a non-blocking country (e.g. Netherlands) to avoid recurrence; revert with the `.env` backup if ever needed.
 
 > **Diagnostic gotcha — Prowlarr masks API keys.** `GET /api/v1/indexer/<id>` returns indexer secrets as a short placeholder, **not** the real key. If you curl an indexer's newznab API directly using that masked value you'll get `<error code="102" description="Empty API Key"/>` and zero results — which looks like a dead indexer but isn't. Prowlarr's own searches use the real key (32 chars for NZBgeek). Read the real value from `prowlarr.db` (`Indexers.Settings` JSON) before testing by hand, or just trust Prowlarr's search rather than a manual curl.
 
@@ -374,9 +374,9 @@ docker logs seerr --tail 30
 
 If a fresh wipe still hits the same error, post `docker logs seerr` output as a GitHub issue.
 
-## Jellyfin: Video Stutters/Freezes Every Few Minutes
+## Plex: Video Stutters/Freezes Every Few Minutes
 
-**Symptom:** Playing large video files (especially 4K remuxes, 50-100+ GB) causes playback to freeze for a few seconds every 2-3 minutes, then resume. Happens on both Jellyfin apps and Kodi with Jellyfin plugin. Jellyfin dashboard may show "Direct Play" (no transcoding).
+**Symptom:** Playing large video files (especially 4K remuxes, 50-100+ GB) causes playback to freeze for a few seconds every 2-3 minutes, then resume. Happens on both Plex apps and Kodi with PlexKodiConnect. Plex dashboard may show "Direct Play" (no transcoding).
 
 **Cause:** UGOS default RAID5 read-ahead is 384 KB — far too small for streaming large files. This forces the kernel to issue many small IO requests to spinning HDDs, each triggering a disk seek (5-10ms). At high bitrates (60+ Mbps for 4K remuxes), the IO queue backs up, disk utilization hits 90%+, and the stream buffer empties causing the stall.
 

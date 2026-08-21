@@ -7,7 +7,7 @@ set -euo pipefail
 #   "Show Name (2024) [tvdbid-123456]"
 # but existing folders may be just "Show Name (2024)".
 #
-# This causes duplicate folders and entries in Jellyfin when Sonarr downloads
+# This causes duplicate folders and entries in Plex when Sonarr downloads
 # new episodes into the expected folder while old episodes sit in the old one.
 #
 # This script:

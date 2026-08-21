@@ -454,10 +454,10 @@ print(str(xbmc[0].get('enable', False)).lower() if xbmc else 'false')")
     # --- Custom Formats: Dolby Vision profile handling ---
     #
     # Profile 5 encodes its base layer as IPT-PQ-C2, which is meaningless
-    # unless a player applies the Dolby Vision RPU. Players that don't (the
-    # Jellyfin Android TV client among them) render it with a green/magenta
-    # cast — sharp picture, badly wrong colour. Profile 8.1 carries a standard
-    # HDR10 base layer, so it degrades cleanly on any HDR10 display.
+    # unless a player applies the Dolby Vision RPU. Players that don't render
+    # it with a green/magenta cast — sharp picture, badly wrong colour.
+    # Profile 8.1 carries a standard HDR10 base layer, so it degrades cleanly
+    # on any HDR10 display.
     #
     # Release titles are the only signal available here: *arr custom formats
     # cannot inspect the Dolby Vision configuration record. "DV" with no HDR

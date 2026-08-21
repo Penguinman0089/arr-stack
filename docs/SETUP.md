@@ -25,8 +25,8 @@ Decide how you'll access your media stack:
 
 | Setup | How you access | What to configure | Good for |
 |-------|----------------|-------------------|----------|
-| **Core** | `192.168.1.50:8096` | Just `.env` + VPN credentials | Testing, single user |
-| **+ local DNS** | `jellyfin.lan` | Configure Pi-hole + add Traefik | Home/family use |
+| **Core** | `192.168.1.50:32400/web` | Just `.env` + VPN credentials | Testing, single user |
+| **+ local DNS** | `plex.lan` | Configure Pi-hole + add Traefik | Home/family use |
 | **+ remote access** | URLs work from outside your home | Add Cloudflare Tunnel and/or Tailscale | Watch/manage from anywhere |
 
 **You can start simple and add features later.** The guide has checkpoints so you can stop at any level.
@@ -45,7 +45,7 @@ Decide how you'll access your media stack:
   <details>
   <summary><strong>New to Docker?</strong></summary>
 
-  **Docker** runs applications in isolated "containers" - like lightweight virtual machines. Each service (Jellyfin, Sonarr, etc.) runs in its own container.
+  **Docker** runs applications in isolated "containers" - like lightweight virtual machines. Each service (Plex, Sonarr, etc.) runs in its own container.
 
   **Docker Compose** lets you define multiple containers in a single file (`docker-compose.yml`) and start them all with one command. Instead of typing out dozens of options for each container, you just run `docker compose up -d`.
 
@@ -76,7 +76,7 @@ Decide how you'll access your media stack:
 | Component | What it does | Which setup? |
 |-----------|--------------|--------------|
 | **Seerr** | Request portal - users request shows/movies here | Core |
-| **Jellyfin** | Media player - like Netflix but for your own content | Core |
+| **Plex** | Media player - like Netflix but for your own content | Core |
 | **Sonarr** | TV show manager - searches for episodes, sends to download client | Core |
 | **Radarr** | Movie manager - searches for movies, sends to download client | Core |
 | **Prowlarr** | Indexer manager - finds download sources for Sonarr/Radarr | Core |
@@ -114,7 +114,7 @@ Decide how you'll access your media stack:
 
 | File | Purpose | Which setup? |
 |------|---------|--------------|
-| `docker-compose.arr-stack.yml` | Core media stack (Jellyfin, *arr apps, downloads, VPN) | Core |
+| `docker-compose.arr-stack.yml` | Core media stack (Plex, *arr apps, downloads, VPN) | Core |
 | `docker-compose.traefik.yml` | Reverse proxy for .lan domains and external access | + local DNS |
 | `docker-compose.cloudflared.yml` | Secure tunnel to Cloudflare (no port forwarding) | + remote access (Cloudflared path) |
 | `docker-compose.tailscale.yml` | Mesh VPN subnet router for private LAN access | + remote access (Tailscale path) |
@@ -123,55 +123,51 @@ Decide how you'll access your media stack:
 See [Quick Reference](REFERENCE.md) for full service lists, .lan URLs, and network details.
 
 <details>
-<summary><strong>Want to use Plex?</strong></summary>
+<summary><strong>Prefer Jellyfin?</strong></summary>
 
-<a id="plex"></a>
+<a id="jellyfin"></a>
 
-This stack uses Jellyfin by default, but Plex works too — either as a replacement or alongside it. Seerr supports both natively. For reference, there's an [old Plex compose file](https://github.com/Pharkie/ultimate-arr-stack/blob/10ea05a/docker-compose.plex-arr-stack.yml) in the git history.
+This stack uses Plex by default. Jellyfin is a free, open-source alternative with no account/claim step. Seerr supports both natively. For reference, there's a [Jellyfin compose block](https://github.com/Pharkie/ultimate-arr-stack/blob/4215e86/docker-compose.arr-stack.yml) in the git history.
 
-Add this to `docker-compose.arr-stack.yml` (add `plex-config` to the `volumes:` section too):
+Add this to `docker-compose.arr-stack.yml` (add `jellyfin-config`/`jellyfin-cache` to the `volumes:` section too):
 
 ```yaml
-  plex:
-    image: lscr.io/linuxserver/plex:latest
-    container_name: plex
+  jellyfin:
+    image: jellyfin/jellyfin:10.11
+    container_name: jellyfin
+    <<: *default-security
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
     ports:
-      - "32400:32400"
+      - "8096:8096"
+      - "7359:7359/udp"
+      - "1900:1900/udp"
     environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
       - TZ=${TZ}
-      - VERSION=docker
-      - PLEX_CLAIM=${PLEX_CLAIM}  # Get from https://plex.tv/claim (expires in 4 mins)
     # Hardware transcoding (Intel Quick Sync) - remove if no Intel GPU
     devices:
       - /dev/dri:/dev/dri
+    group_add:
+      - "${RENDER_GROUP_ID:-0}"
     volumes:
-      - plex-config:/config
-      - ${MEDIA_ROOT}/movies:/media/movies:ro
-      - ${MEDIA_ROOT}/tv:/media/tv:ro
+      - jellyfin-config:/config
+      - jellyfin-cache:/cache
+      - ${MEDIA_ROOT}/media:/data/media:ro
     networks:
       arr-stack:
-        ipv4_address: 172.20.0.11
+        ipv4_address: 172.20.0.4
     restart: always
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:32400/identity"]
+      test: ["CMD", "curl", "-f", "http://localhost:8096/health"]
       interval: 1m
       timeout: 30s
       retries: 2
       start_period: 30s
 ```
 
-You'll also need to:
-- **Add `PLEX_CLAIM`** to your `.env` file (only needed on first run)
-- **Add a Traefik route** for `plex.lan` → port `32400`
-- **Add a Pi-hole DNS entry** for `plex.lan` in `pihole/dnsmasq.d/02-local-dns.conf`
-- **Enable hardware transcoding** in Plex Settings → Transcoder → "Use hardware acceleration when available" (requires Plex Pass). Jellyfin and Plex can share the iGPU
-
-If you're **replacing** Jellyfin rather than running both, also remove the Jellyfin service, its volumes (`jellyfin-config`/`jellyfin-cache`), and rename its Traefik routes to Plex. If running **both**, add Plex as a media server in Seerr settings alongside Jellyfin.
-
-Plex support remains untested.
+If you're **replacing** Plex rather than running both, also remove the Plex service, its `plex-config` volume, and rename its Traefik routes to Jellyfin. If running **both**, add Jellyfin as a media server in Seerr settings alongside Plex — pick a free IP (e.g. `172.20.0.17`) since Plex already holds `172.20.0.4`.
 
 </details>
 
@@ -298,8 +294,8 @@ sudo chown -R 1000:1000 /srv/docker/arr-stack
 /volume1/  (or /srv/)
 ├── data/
 │   ├── media/                # Library files (TRaSH recommended)
-│   │   ├── movies/           #   Movie library (Radarr → Jellyfin)
-│   │   └── tv/               #   TV show library (Sonarr → Jellyfin)
+│   │   ├── movies/           #   Movie library (Radarr → Plex)
+│   │   └── tv/               #   TV show library (Sonarr → Plex)
 │   ├── torrents/             # qBittorrent downloads
 │   │   ├── tv/               #   Sonarr category
 │   │   └── movies/           #   Radarr category
@@ -466,7 +462,7 @@ mkdir -p pihole/dnsmasq.d
 docker compose -f docker-compose.arr-stack.yml up -d
 ```
 
-> **Port 1900 conflict?** If you get "address already in use" for port 1900, your NAS's built-in media server is using it. Comment out `- "1900:1900/udp"` in the Jellyfin section of the compose file. Jellyfin works fine without it (only affects smart TV auto-discovery).
+> **Port 1900 conflict?** If you get "address already in use" for port 1900, your NAS's built-in media server is using it. Comment out `- "1900:1900/udp"` in the Plex section of the compose file. Plex works fine without it (only affects smart TV auto-discovery).
 
 ### 3.2 Verify Deployment
 
@@ -517,7 +513,7 @@ Compare the IPs — qBittorrent should show your VPN's IP, not your home IP.
 1. Sonarr/Radarr: Settings → Download Clients → Test
 2. Add a TV show or movie (noting legal restrictions) → verify it appears in qBittorrent
 3. After download completes → verify it moves to library
-4. Jellyfin → verify media appears in library
+4. Plex → verify media appears in library
 
 ---
 
@@ -526,15 +522,15 @@ Compare the IPs — qBittorrent should show your VPN's IP, not your home IP.
 Your media stack is fully configured. The two services you'll use most:
 
 - **Seerr** — `http://NAS_IP:5055` — Request new shows and movies
-- **Jellyfin** — `http://NAS_IP:8096` — Watch your media library
+- **Plex** — `http://NAS_IP:32400/web` — Watch your media library
 
 > Replace `NAS_IP` with your NAS's IP address (e.g., `192.168.1.50`). For all service URLs, ports, and network details, see [Quick Reference](REFERENCE.md).
 
-**Try it out:** Open Seerr, request a show or movie, then watch it download in Sonarr/Radarr and appear in Jellyfin.
+**Try it out:** Open Seerr, request a show or movie, then watch it download in Sonarr/Radarr and appear in Plex.
 
 **What's next?**
 - **Stop here** if IP:port access is fine for you
-- **Continue to [+ local DNS](#-local-dns-lan-domains--optional)** for friendly `.lan` URLs (e.g., `http://jellyfin.lan`) and remote access
+- **Continue to [+ local DNS](#-local-dns-lan-domains--optional)** for friendly `.lan` URLs (e.g., `http://plex.lan`) and remote access
 
 ---
 
@@ -550,7 +546,7 @@ Access services by name (`http://sonarr.lan`) instead of port numbers. Requires 
 
 Two combinable paths. Pick whichever fits — or both:
 
-**a) Cloudflared** — public HTTPS for Jellyfin and Seerr at `jellyfin.yourdomain.com`. Requires a domain (~$10/year) + free Cloudflare account.
+**a) Cloudflared** — public HTTPS for Plex and Seerr at `plex.yourdomain.com`. Requires a domain (~$10/year) + free Cloudflare account.
 **[→ Cloudflared setup guide](REMOTE-ACCESS.md)**
 
 **b) Tailscale** — private mesh VPN exposing the whole LAN (admin UIs, `*.lan` domains, Home Assistant) to just you and devices you authorise. Free, no domain needed, works behind CGNAT and hotel WiFi.

@@ -4,7 +4,7 @@
 
 <img align="right" width="45%" src="docs/images/demo/demo.gif">
 
-A Docker Compose stack for automated media management. Request a show or movie, it downloads and appears in Jellyfin—ready to watch, VPN-protected.
+A Docker Compose stack for automated media management. Request a show or movie, it downloads and appears in Plex—ready to watch, VPN-protected.
 
 Works on Ugreen, Synology, QNAP, or any Docker host.
 
@@ -15,9 +15,9 @@ Works on Ugreen, Synology, QNAP, or any Docker host.
 - **Production-ready** — Real healthchecks, auto-recovery when VPN reconnects, backup script. Not just "it runs."
 - **Battle-tested** — Edge cases found and fixed across multiple NAS setups. More resilient than most.
 - **Best practices built in** — Downloads appear instantly without using extra disk space, files are named consistently, and download settings are tuned for security and performance. Based on [TRaSH Guides](https://trash-guides.info/).
-- **Everything you need** — Jellyfin, Sonarr, Radarr, Prowlarr, Bazarr, Seerr, qBittorrent, SABnzbd, Pi-hole, Cloudflare Tunnel, Tailscale. Modular — skip what you don't need, add what you do (e.g. Lidarr).
+- **Everything you need** — Plex, Sonarr, Radarr, Prowlarr, Bazarr, Seerr, qBittorrent, SABnzbd, Pi-hole, Cloudflare Tunnel, Tailscale. Modular — skip what you don't need, add what you do (e.g. Lidarr).
 - **Step-by-step guide** — Not just a docker-compose file in a repo.
-- **Flexible** — Supports 30+ VPN providers. Plex users can swap or add Jellyfin (see [Plex guide](docs/SETUP.md#plex)).
+- **Flexible** — Supports 30+ VPN providers. Prefer Jellyfin? Swap it in (see [Jellyfin guide](docs/SETUP.md#jellyfin)).
 - **Privacy by default** — All downloads route through your VPN.
 
 <details>
@@ -41,13 +41,13 @@ Works on Ugreen, Synology, QNAP, or any Docker host.
 
 Request: Seerr → Sonarr/Radarr → Prowlarr
 Download: qBittorrent (torrents) or SABnzbd (Usenet) — both via VPN (Gluetun)
-Watch: Jellyfin — locally or remotely via Traefik
+Watch: Plex — locally or remotely via Traefik
 
 **Choose your setup:**
 | Setup | How you access | What you need |
 |-------|----------------|---------------|
 | **Core** | `192.168.1.50:8096` | Just the stack |
-| **+ local DNS** | `jellyfin.lan` | Configure Pi-hole + add Traefik |
+| **+ local DNS** | `plex.lan` | Configure Pi-hole + add Traefik |
 | **+ remote access** | URLs work from outside your home | Cloudflare Tunnel and/or Tailscale |
 
 ## Get Started
@@ -59,7 +59,7 @@ Watch: Jellyfin — locally or remotely via Traefik
 | [Architecture](docs/ARCHITECTURE.md) | Understand how the stack fits together |
 | [App Configuration](docs/APP-CONFIG.md) | Configure each app — [script-assisted](docs/APP-CONFIG-QUICK.md) or [manual](docs/APP-CONFIG.md) |
 | [Local DNS](docs/LOCAL-DNS.md) | Set up `.lan` domains with Pi-hole + Traefik |
-| [Remote Access (Cloudflared)](docs/REMOTE-ACCESS.md) | Access Jellyfin/Seerr from anywhere via your domain |
+| [Remote Access (Cloudflared)](docs/REMOTE-ACCESS.md) | Access Plex/Seerr from anywhere via your domain |
 | [Tailscale](docs/TAILSCALE.md) | Reach the whole LAN from anywhere via mesh VPN |
 | [Utilities](docs/UTILITIES.md) | Monitoring, auto-recovery, disk usage tools |
 | [Quick Reference](docs/REFERENCE.md) | Cheat sheet: all URLs, ports, IPs, common commands |
@@ -98,7 +98,7 @@ Four test and script files remain under CC BY-NC 4.0 rather than PolyForm, becau
 
 > GitHub will report this repository as unlicensed. Its detector recognises thirteen licences and includes neither PolyForm nor any NonCommercial CC variant. That's cosmetic; the licence files are what have legal effect.
 
-Individual software components deployed by this stack (Sonarr, Radarr, Jellyfin, etc.) retain their own licenses.
+Individual software components deployed by this stack (Sonarr, Radarr, Plex, etc.) retain their own licenses.
 
 ## Acknowledgments
 

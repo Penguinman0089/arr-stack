@@ -3,7 +3,7 @@
 #
 # What it does:
 # - Creates an encrypted tunnel from your NAS to Cloudflare's network
-# - Routes jellyfin.yourdomain.com → your Jellyfin through the tunnel
+# - Routes plex.yourdomain.com → your Plex through the tunnel
 # - No ports exposed on your router = more secure
 #
 # You DON'T need this if you're only accessing services locally.

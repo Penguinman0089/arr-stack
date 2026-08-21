@@ -15,7 +15,7 @@
 
 | Service | Core (IP:port) | + local DNS | + remote access |
 |---------|----------------|-------------|-----------------|
-| Jellyfin | `NAS_IP:8096` | `http://jellyfin.lan` | `https://jellyfin.DOMAIN` |
+| Plex | `NAS_IP:32400/web` | `http://plex.lan` | `https://plex.DOMAIN` |
 | Seerr | `NAS_IP:5055` | `http://seerr.lan` | `https://seerr.DOMAIN` |
 | Sonarr | `NAS_IP:8989` | `http://sonarr.lan` | — |
 | Radarr | `NAS_IP:7878` | `http://radarr.lan` | — |
@@ -44,7 +44,7 @@
 | ↳ Prowlarr | (via Gluetun) | 9696 | Indexer manager |
 | Sonarr | 172.20.0.10 | 8989 | TV shows (own IP — not via VPN) |
 | Radarr | 172.20.0.11 | 7878 | Movies (own IP — not via VPN) |
-| Jellyfin | 172.20.0.4 | 8096 | Media server |
+| Plex | 172.20.0.4 | 32400 | Media server |
 | Pi-hole | 172.20.0.5 | 8081 | DNS ad-blocking (`/admin`) |
 | Seerr | 172.20.0.8 | 5055 | Request management |
 | Bazarr | 172.20.0.9 | 6767 | Subtitles |
@@ -82,7 +82,7 @@
 
 **VPN-protected services** (qBittorrent, SABnzbd, Prowlarr, FlareSolverr) share Gluetun's network via `network_mode: service:gluetun` — these carry the traffic that must stay hidden (peers + indexer scraping).
 
-**Bridge services** (Sonarr, Radarr, Jellyfin, Seerr, Bazarr, …) run on the `arr-stack` bridge with their own IPs. Sonarr (172.20.0.10) and Radarr (172.20.0.11) are *not* behind the VPN: they only contact metadata providers (TVDB/TMDB) and internal services, so they need no VPN — and staying on the bridge keeps them reachable when a gluetun/VPN reconnect happens.
+**Bridge services** (Sonarr, Radarr, Plex, Seerr, Bazarr, …) run on the `arr-stack` bridge with their own IPs. Sonarr (172.20.0.10) and Radarr (172.20.0.11) are *not* behind the VPN: they only contact metadata providers (TVDB/TMDB) and internal services, so they need no VPN — and staying on the bridge keeps them reachable when a gluetun/VPN reconnect happens.
 
 | From | To | Use | Why |
 |------|-----|-----|-----|
@@ -95,7 +95,7 @@
 | Prowlarr | FlareSolverr | `localhost:8191` | Same network stack (both behind Gluetun) |
 | Seerr | Sonarr | `sonarr:8989` | Both on the bridge |
 | Seerr | Radarr | `radarr:7878` | Both on the bridge |
-| Seerr | Jellyfin | `jellyfin:8096` | Both have own IPs |
+| Seerr | Plex | `plex:32400` | Both have own IPs |
 | Bazarr | Sonarr | `sonarr:8989` | Both on the bridge |
 | Bazarr | Radarr | `radarr:7878` | Both on the bridge |
 
@@ -151,15 +151,15 @@ Services start in dependency order (handled automatically by `depends_on`):
 4. **Sonarr, Radarr** → bridge services (own IPs, not via VPN); reach the download clients via `gluetun`
 5. **Seerr, Bazarr** → connect to Sonarr/Radarr by bridge hostname (`sonarr`/`radarr`)
 6. **FlareSolverr** → Cloudflare bypass (via Gluetun, shares VPN with Prowlarr)
-6. **Jellyfin, WireGuard** → Independent, start anytime
+6. **Plex, WireGuard** → Independent, start anytime
 
 ## Compose Files
 
-### `docker-compose.arr-stack.yml` (Core - Jellyfin)
+### `docker-compose.arr-stack.yml` (Core - Plex)
 
 | Service | Description |
 |---------|-------------|
-| Jellyfin | Media streaming |
+| Plex | Media streaming |
 | Seerr | Request system |
 | Sonarr | TV management |
 | Radarr | Movie management |
