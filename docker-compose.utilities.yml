@@ -429,6 +429,8 @@ services:
     cap_add:
       - CHOWN             # nginx master chowns cache dirs to its worker user at startup
       - NET_BIND_SERVICE  # nginx binds port 80 as root
+      - SETUID            # nginx worker drops privileges to uid/gid 101
+      - SETGID
     restart: always
     networks:
       arr-stack:
