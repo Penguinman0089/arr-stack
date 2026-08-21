@@ -393,6 +393,8 @@ services:
     cap_add:
       - CHOWN           # Create config/data dirs on first run
       - DAC_OVERRIDE    # Write to root-owned volume directories
+      - SETUID          # internal nginx worker drops privileges to uid/gid 101
+      - SETGID
     restart: always
     ports:
       - "7575:7575"
