@@ -18,19 +18,19 @@ Cloudflare Tunnel lets you access services from outside your home without openin
 ```bash
 cd $NAS_STACK_DIR
 mkdir -p cloudflared
-docker run --rm --user 0:0 -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
+docker run --rm --user 0:0 --cap-drop ALL --cap-add DAC_OVERRIDE -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
 ```
 
 > **`-e HOME=/home/nonroot` is required**, even running as root — otherwise `cert.pem` is written to root's default home (`/root/.cloudflared/cert.pem`) instead of the mounted volume, and is lost the moment the (`--rm`) container exits.
 
-> **Note:** `--user 0:0` (root) is required here — the image's own `/home/nonroot` directory is baked in as owner-only (`700`, owned by UID 65532), so any other UID gets `permission denied` just entering it, regardless of the *host* folder's permissions. See [Cloudflare Tunnel: Error 1033](TROUBLESHOOTING.md#cloudflare-tunnel-error-1033-cloudflared-crash-looping-on-permission-denied) for details. `cloudflared` itself runs as root too (with `cap_drop: ALL`, so no real privileges are gained) for the same reason — see [docker-compose.cloudflared.yml](../docker-compose.cloudflared.yml).
+> **Note:** `--user 0:0 --cap-add DAC_OVERRIDE` is required here — the image's own `/home/nonroot` directory is baked in as owner-only (`700`, owned by UID 65532), so any other UID gets `permission denied` just entering it (regardless of the *host* folder's permissions), and root alone isn't enough once `--cap-drop ALL` strips the `DAC_OVERRIDE` capability root normally relies on to cross that directory. See [Cloudflare Tunnel: Error 1033](TROUBLESHOOTING.md#cloudflare-tunnel-error-1033-cloudflared-crash-looping-on-permission-denied) for details. `cloudflared` itself runs the same way (root + `cap_drop: ALL` + `cap_add: DAC_OVERRIDE`, so no other privileges are gained) — see [docker-compose.cloudflared.yml](../docker-compose.cloudflared.yml).
 
 This prints a URL. Open it in your browser, select your domain, and authorize. **Leave the container running** until you've clicked authorize — the cert is delivered to it via callback and saved into `cloudflared/cert.pem`. If you Ctrl+C before authorizing, no cert is written and step 2 will fail with `No file cert.pem in [...]`.
 
 **2. Create the tunnel:**
 
 ```bash
-docker run --rm --user 0:0 -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel create nas-tunnel
+docker run --rm --user 0:0 --cap-drop ALL --cap-add DAC_OVERRIDE -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel create nas-tunnel
 ```
 
 Note the tunnel ID (e.g., `6271ac25-f8ea-4cd3-b269-ad9778c61272`).
@@ -59,8 +59,8 @@ EOF
 **4. Add DNS routes:**
 
 ```bash
-docker run --rm --user 0:0 -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel "*.yourdomain.com"
-docker run --rm --user 0:0 -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel yourdomain.com
+docker run --rm --user 0:0 --cap-drop ALL --cap-add DAC_OVERRIDE -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel "*.yourdomain.com"
+docker run --rm --user 0:0 --cap-drop ALL --cap-add DAC_OVERRIDE -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel yourdomain.com
 ```
 
 > If either command errors with `An A, AAAA, or CNAME record with that host already exists`, Cloudflare auto-created a record for that hostname (commonly the apex) when you added the domain. Delete the existing record in Cloudflare dashboard → DNS → Records, then re-run the failing command.
@@ -136,7 +136,7 @@ ingress:
 
 Add DNS records for the new hostnames:
 ```bash
-docker run --rm --user 0:0 -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel homeassistant.yourdomain.com
+docker run --rm --user 0:0 --cap-drop ALL --cap-add DAC_OVERRIDE -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel homeassistant.yourdomain.com
 ```
 
 **Tip:** For Docker containers on the `arr-stack` network, use the container name as hostname. For services outside Docker, use the IP address.

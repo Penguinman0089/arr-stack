@@ -504,14 +504,14 @@ docker rm cftmp
 # drwxr-xr-x 0/0               0 ... home/
 # drwx------ 65532/65532       0 ... home/nonroot/
 ```
-Any UID other than `65532` (or root) gets **`permission denied` just entering `/home/nonroot`**, before the bind mount underneath it is ever reached — completely independent of the host folder's own ownership/permissions. So overriding `user:` to this stack's normal `${PUID}:${PGID}` (a natural first guess, since every other service in this stack uses it) makes things *worse*, not better — capabilities like `DAC_OVERRIDE` don't help either, since this isn't a permission-bits check on the mounted content, it's the parent directory baked into the image.
+Any UID other than `65532` (or root **with `CAP_DAC_OVERRIDE`**) gets **`permission denied` just entering `/home/nonroot`**, before the bind mount underneath it is ever reached — completely independent of the host folder's own ownership/permissions. So overriding `user:` to this stack's normal `${PUID}:${PGID}` (a natural first guess, since every other service in this stack uses it) makes things *worse*, not better. And running as plain root (`user: "0:0"`) alone is **not** enough either if `cap_drop: ALL` is also set — dropping all capabilities strips `CAP_DAC_OVERRIDE` even from root, and that capability (not just UID 0) is what actually lets a process cross a `700` directory it doesn't own. Confirmed directly: `--user 0:0 --cap-drop ALL` against the real `cloudflared` binary at this exact mount path fails with the same `permission denied`; adding `--cap-add DAC_OVERRIDE` back makes it start cleanly (`Registered tunnel connection` x4). A quick `alpine`-based test at a *different*, non-`/home/nonroot` mount point is **not** a valid way to reproduce this — Docker creates a fresh, permissive mount point there instead of hitting the image's actual baked-in `700` directory, so it'll misleadingly "work" regardless.
 
 > **Bonus gotcha found along the way:** on some NAS platforms (Synology and derivatives like UGOS), `ls -la`'s displayed permissions on a shared-folder path can be unreliable/relative to which UID is asking, and `getfacl` won't reveal the real ACL either. Don't trust a `777`-looking `ls -la` at face value — verify actual access (including **write**, not just read/list) by running a throwaway container as the specific UID in question:
 > ```bash
 > docker run --rm --user <uid>:<gid> -v /path/to/folder:/test alpine sh -c "touch /test/writetest && echo WRITE_OK && rm /test/writetest"
 > ```
 
-**Fix:** Run `cloudflared` as root instead of trying to match ownership (already applied in [docker-compose.cloudflared.yml](../docker-compose.cloudflared.yml)) — `cap_drop: ALL` means it still gains no real privileges, the same pattern this stack's `traefik` service already uses safely:
+**Fix:** Run `cloudflared` as root **and** add back `DAC_OVERRIDE` specifically, instead of trying to match ownership (already applied in [docker-compose.cloudflared.yml](../docker-compose.cloudflared.yml)) — this is still effectively no real privileges beyond what's needed to cross that one directory, the same pattern this stack's `traefik` service already runs safely as root:
 ```yaml
 services:
   cloudflared:
@@ -520,6 +520,8 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - DAC_OVERRIDE
 ```
 
 Restart and verify:
@@ -530,9 +532,9 @@ docker logs -f cloudflared   # look for "Registered tunnel connection"
 
 If `credentials.json`/`cert.pem` are also missing (e.g. wiped by an unrelated cleanup), regenerate them **for the existing tunnel** rather than creating a new one — this avoids having to redo DNS routes:
 ```bash
-docker run --rm --user 0:0 --cap-drop ALL -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
-docker run --rm --user 0:0 --cap-drop ALL -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel list
-docker run --rm --user 0:0 --cap-drop ALL -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel token --cred-file /home/nonroot/.cloudflared/credentials.json <tunnel-name-or-id>
+docker run --rm --user 0:0 --cap-drop ALL --cap-add DAC_OVERRIDE -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
+docker run --rm --user 0:0 --cap-drop ALL --cap-add DAC_OVERRIDE -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel list
+docker run --rm --user 0:0 --cap-drop ALL --cap-add DAC_OVERRIDE -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel token --cred-file /home/nonroot/.cloudflared/credentials.json <tunnel-name-or-id>
 ```
 
 

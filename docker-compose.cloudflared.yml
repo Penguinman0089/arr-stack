@@ -23,13 +23,16 @@ services:
     container_name: cloudflared
     # The image's own /home/nonroot is baked in as mode 700 owned by UID 65532 - any other
     # UID (including ${PUID}:${PGID}) gets "permission denied" just entering that directory,
-    # before the bind mount below is even reached. Root bypasses it; cap_drop ALL still
-    # leaves no real privileges (see docs/TROUBLESHOOTING.md).
+    # before the bind mount below is even reached. Root normally bypasses this, but cap_drop
+    # ALL strips CAP_DAC_OVERRIDE too, which root needs to cross that 700 directory - hence
+    # cap_add below (still no other privileges gained; see docs/TROUBLESHOOTING.md).
     user: "0:0"
     security_opt:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    cap_add:
+      - DAC_OVERRIDE
     command: tunnel --config /home/nonroot/.cloudflared/config.yml run
     volumes:
       - ./cloudflared:/home/nonroot/.cloudflared:ro
