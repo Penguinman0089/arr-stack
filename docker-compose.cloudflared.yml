@@ -24,6 +24,10 @@ services:
     # Overrides the image's built-in UID 65532 ("nonroot"), which some NAS shared-folder
     # ACLs block entirely since it has no matching NAS user account (see docs/TROUBLESHOOTING.md).
     user: "${PUID}:${PGID}"
+    environment:
+      # UID above has no /etc/passwd entry in the image, so $HOME must be set explicitly
+      # or cloudflared falls back to "/" instead of the mounted config directory.
+      - HOME=/home/nonroot
     security_opt:
       - no-new-privileges:true
     cap_drop:

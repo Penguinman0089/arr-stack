@@ -509,7 +509,12 @@ docker run --rm --user 65532:65532 -v /path/to/some/known-good/folder:/test alpi
 services:
   cloudflared:
     user: "${PUID}:${PGID}"
+    environment:
+      - HOME=/home/nonroot
 ```
+
+> **Second gotcha:** overriding `user:` to a UID with no `/etc/passwd` entry in the (distroless) image breaks `$HOME` resolution — `cloudflared` (and `tunnel login` run standalone) then tries to write to `/.cloudflared` and fails with `mkdir /.cloudflared: permission denied`, even though the volume is correctly mounted at `/home/nonroot/.cloudflared`. Setting `HOME=/home/nonroot` explicitly fixes this regardless of which UID is running.
+
 Then re-chown the config directory to match and restart:
 ```bash
 sudo chown -R ${PUID}:${PGID} cloudflared/
@@ -517,11 +522,11 @@ docker compose -f docker-compose.cloudflared.yml up -d --force-recreate
 docker logs -f cloudflared   # look for "Registered tunnel connection"
 ```
 
-If `credentials.json`/`cert.pem` are also missing (e.g. wiped by an unrelated cleanup), regenerate them **for the existing tunnel** rather than creating a new one — this avoids having to redo DNS routes:
+If `credentials.json`/`cert.pem` are also missing (e.g. wiped by an unrelated cleanup), regenerate them **for the existing tunnel** rather than creating a new one — this avoids having to redo DNS routes (note the `-e HOME=/home/nonroot` on every standalone `docker run`, for the same reason as above):
 ```bash
-docker run --rm --user ${PUID}:${PGID} -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
-docker run --rm --user ${PUID}:${PGID} -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel list
-docker run --rm --user ${PUID}:${PGID} -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel token --cred-file /home/nonroot/.cloudflared/credentials.json <tunnel-name-or-id>
+docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
+docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel list
+docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel token --cred-file /home/nonroot/.cloudflared/credentials.json <tunnel-name-or-id>
 ```
 
 
