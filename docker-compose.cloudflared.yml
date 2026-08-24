@@ -21,14 +21,11 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:2026.8.2
     container_name: cloudflared
-    # Overrides the image's built-in UID 65532 ("nonroot"): this NAS's ACL on the
-    # cloudflared/ bind mount only grants access to its owner (${PUID}:${PGID}) or root,
-    # not arbitrary UIDs even with extra capabilities (see docs/TROUBLESHOOTING.md).
-    user: "${PUID}:${PGID}"
-    environment:
-      # UID above has no /etc/passwd entry in the image, so $HOME must be set explicitly
-      # or cloudflared falls back to "/" instead of the mounted config directory.
-      - HOME=/home/nonroot
+    # The image's own /home/nonroot is baked in as mode 700 owned by UID 65532 - any other
+    # UID (including ${PUID}:${PGID}) gets "permission denied" just entering that directory,
+    # before the bind mount below is even reached. Root bypasses it; cap_drop ALL still
+    # leaves no real privileges (see docs/TROUBLESHOOTING.md).
+    user: "0:0"
     security_opt:
       - no-new-privileges:true
     cap_drop:
