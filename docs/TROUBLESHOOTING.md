@@ -494,37 +494,41 @@ ssh -vv user@your-nas.local 'exit' 2>&1 | grep 'kex: algorithm'
 ```
 open /home/nonroot/.cloudflared/config.yml: permission denied
 ```
-even though `ls -la ./cloudflared` shows wide-open `777` permissions and correct ownership (`65532:65532`).
+even though `ls -la ./cloudflared` (run as root, e.g. via `sudo`) shows wide-open `777` permissions and correct ownership (`65532:65532`).
 
-**Cause:** Some NAS platforms (Synology and Synology-derived OSes like UGOS) enforce a separate Windows-ACL-style permission layer on shared folders that is **completely invisible to `ls -la`/`getfacl`** and overrides POSIX bits — it blocks read access for *any* non-root UID, no matter what `chmod`/`chown` shows. `cloudflared` is the only service in this stack running as a plain, unprivileged UID (`65532`, "nonroot") with no additional capabilities; LinuxServer.io-based services (Sonarr, Radarr, etc.) also run unprivileged but work fine because their compose entries already add the `DAC_OVERRIDE` capability (see `x-security` block in [docker-compose.arr-stack.yml](../docker-compose.arr-stack.yml)) — `CAP_DAC_OVERRIDE` bypasses this kind of discretionary access check at the kernel level regardless of UID. Switching `cloudflared`'s `user:` to a different UID (e.g. `${PUID}:${PGID}`) does **not** fix this — every non-root UID is blocked equally; only `DAC_OVERRIDE` (or running as root) gets through.
+**Cause:** On some NAS platforms (Synology and Synology-derived OSes like UGOS), the classic `rwxrwxrwx` shown by `ls -la` on a shared-folder path is **not reliable** — the permission bits displayed (and enforced) depend on which UID is doing the looking, not a single ground truth. A file can show `777` to root and to its owner, yet still deny access to every other UID, with no way to see that from `ls -la`/`getfacl` alone (`getfacl` only reports standard POSIX bits, and this NAS has no `nfs4_getfacl` installed to inspect the real ACL). Concretely: `docker run --user 0:0 ... ls -la` (root) can show one thing, `docker run --user 1000:1000 ...` (the file's actual owner) can show a fully-open `777`, while `docker run --user 65532:65532 ...` (some other UID) gets `permission denied` on the exact same path at the exact same time. `cloudflared`'s image hardcodes it to run as UID `65532` ("nonroot") — the only service in this stack using a UID that isn't this stack's own `${PUID}:${PGID}` owner or root, so it's the only one that hits this. Adding capabilities like `DAC_OVERRIDE` does **not** help — this isn't a standard Linux DAC permission check being bypassed, it's the NAS's own ACL layer enforcing "owner or root only" regardless of capabilities.
 
-**Confirm this is the cause** (isolates a NAS-wide unprivileged-UID block from a folder-specific issue):
+**Confirm this is the cause** (compare access as root, as the folder's actual owner, and as some other UID):
 ```bash
-docker run --rm --user 65532:65532 -v /path/to/some/known-good/folder:/test alpine ls -la /test
-# permission denied here too (on a folder that works fine for other containers) = confirms NAS-wide block
+docker run --rm --user 0:0       -v /path/to/cloudflared:/test alpine ls -la /test   # root: works
+docker run --rm --user 1000:1000 -v /path/to/cloudflared:/test alpine ls -la /test   # actual owner (PUID:PGID): works
+docker run --rm --user 65532:65532 -v /path/to/cloudflared:/test alpine ls -la /test  # unrelated UID: permission denied
 ```
 
-**Fix:** Add the `DAC_OVERRIDE` capability instead of changing the container's user (already added to [docker-compose.cloudflared.yml](../docker-compose.cloudflared.yml)):
+**Fix:** Run `cloudflared` as this stack's normal `${PUID}:${PGID}` instead of its built-in UID (already applied in [docker-compose.cloudflared.yml](../docker-compose.cloudflared.yml)):
 ```yaml
 services:
   cloudflared:
-    cap_drop:
-      - ALL
-    cap_add:
-      - DAC_OVERRIDE
+    user: "${PUID}:${PGID}"
+    environment:
+      - HOME=/home/nonroot   # UID above has no /etc/passwd entry in the image, so $HOME
+                             # must be set explicitly or cloudflared writes to "/" instead
+                             # of the mounted config directory and fails with
+                             # "mkdir /.cloudflared: permission denied"
 ```
 
-Restart and verify:
+Make sure the directory is actually owned by that UID/GID first:
 ```bash
+sudo chown -R ${PUID}:${PGID} cloudflared/
 docker compose -f docker-compose.cloudflared.yml up -d --force-recreate
 docker logs -f cloudflared   # look for "Registered tunnel connection"
 ```
 
-If `credentials.json`/`cert.pem` are also missing (e.g. wiped by an unrelated cleanup), regenerate them **for the existing tunnel** rather than creating a new one — this avoids having to redo DNS routes. Since `docker run` here doesn't apply the compose file's `cap_add`, pass it explicitly:
+If `credentials.json`/`cert.pem` are also missing (e.g. wiped by an unrelated cleanup), regenerate them **for the existing tunnel** rather than creating a new one — this avoids having to redo DNS routes (note the `-e HOME=/home/nonroot` on every standalone `docker run`, for the same reason as above):
 ```bash
-docker run --rm --cap-drop ALL --cap-add DAC_OVERRIDE -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
-docker run --rm --cap-drop ALL --cap-add DAC_OVERRIDE -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel list
-docker run --rm --cap-drop ALL --cap-add DAC_OVERRIDE -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel token --cred-file /home/nonroot/.cloudflared/credentials.json <tunnel-name-or-id>
+docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
+docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel list
+docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel token --cred-file /home/nonroot/.cloudflared/credentials.json <tunnel-name-or-id>
 ```
 
 

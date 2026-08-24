@@ -18,25 +18,25 @@ Cloudflare Tunnel lets you access services from outside your home without openin
 ```bash
 cd $NAS_STACK_DIR
 mkdir -p cloudflared
-sudo chown -R 65532:65532 cloudflared/   # NAS ACLs override POSIX perms; 65532 is cloudflared's nonroot UID inside the container
-docker run --rm -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
+sudo chown -R ${PUID}:${PGID} cloudflared/   # match the UID/GID cloudflared runs as (see docker-compose.cloudflared.yml)
+docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
 ```
 
-> **Getting `permission denied` reading files in `cloudflared/` even though ownership/permissions look correct?** Some NAS platforms (Synology and derivatives like UGOS) block shared-folder access entirely for any non-root, unprivileged process, regardless of UID. See [Cloudflare Tunnel: Error 1033](TROUBLESHOOTING.md#cloudflare-tunnel-error-1033-cloudflared-crash-looping-on-permission-denied) for the fix (add the `DAC_OVERRIDE` capability, add `--cap-add DAC_OVERRIDE` to the `docker run` commands on this page too).
+> **Getting `permission denied` reading files in `cloudflared/` even though ownership/permissions look correct?** Some NAS platforms (Synology and derivatives like UGOS) enforce ACLs where `ls -la`'s `777` display isn't reliable — only the folder's actual owner (or root) can really access it, regardless of what the bits show. See [Cloudflare Tunnel: Error 1033](TROUBLESHOOTING.md#cloudflare-tunnel-error-1033-cloudflared-crash-looping-on-permission-denied) for details.
 
 This prints a URL. Open it in your browser, select your domain, and authorize. **Leave the container running** until you've clicked authorize — the cert is delivered to it via callback and saved into `cloudflared/cert.pem`. If you Ctrl+C before authorizing, no cert is written and step 2 will fail with `No file cert.pem in [...]`.
 
 **2. Create the tunnel:**
 
 ```bash
-docker run --rm -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel create nas-tunnel
+docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel create nas-tunnel
 ```
 
 Note the tunnel ID (e.g., `6271ac25-f8ea-4cd3-b269-ad9778c61272`).
 
 **3. Rename credentials and create config:**
 
-> `cloudflared/` is now owned by UID 65532 (the container's user), so the file ops below use `sudo`.
+> `cloudflared/` is now owned by `${PUID}:${PGID}` (this stack's normal app user), so the file ops below use `sudo`.
 
 ```bash
 # Rename the tunnel credentials file (idempotent — safe to re-run)
@@ -55,14 +55,14 @@ ingress:
     service: http://traefik:80
   - service: http_status:404
 EOF
-sudo chown 65532:65532 cloudflared/config.yml
+sudo chown ${PUID}:${PGID} cloudflared/config.yml
 ```
 
 **4. Add DNS routes:**
 
 ```bash
-docker run --rm -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel "*.yourdomain.com"
-docker run --rm -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel yourdomain.com
+docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel "*.yourdomain.com"
+docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel yourdomain.com
 ```
 
 > If either command errors with `An A, AAAA, or CNAME record with that host already exists`, Cloudflare auto-created a record for that hostname (commonly the apex) when you added the domain. Delete the existing record in Cloudflare dashboard → DNS → Records, then re-run the failing command.
@@ -138,7 +138,7 @@ ingress:
 
 Add DNS records for the new hostnames:
 ```bash
-docker run --rm -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel homeassistant.yourdomain.com
+docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel route dns nas-tunnel homeassistant.yourdomain.com
 ```
 
 **Tip:** For Docker containers on the `arr-stack` network, use the container name as hostname. For services outside Docker, use the IP address.
