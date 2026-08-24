@@ -22,7 +22,7 @@ sudo chown -R 65532:65532 cloudflared/   # NAS ACLs override POSIX perms; 65532 
 docker run --rm -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
 ```
 
-> **Getting `permission denied` reading files in `cloudflared/` even though ownership/permissions look correct?** Some NAS platforms (Synology and derivatives like UGOS) block shared-folder access entirely for UIDs with no matching NAS user account — `65532` has no such account. See [Cloudflare Tunnel: Error 1033](TROUBLESHOOTING.md#cloudflare-tunnel-error-1033-cloudflared-crash-looping-on-permission-denied) for the fix (run the container as `${PUID}:${PGID}` instead).
+> **Getting `permission denied` reading files in `cloudflared/` even though ownership/permissions look correct?** Some NAS platforms (Synology and derivatives like UGOS) block shared-folder access entirely for any non-root, unprivileged process, regardless of UID. See [Cloudflare Tunnel: Error 1033](TROUBLESHOOTING.md#cloudflare-tunnel-error-1033-cloudflared-crash-looping-on-permission-denied) for the fix (add the `DAC_OVERRIDE` capability, add `--cap-add DAC_OVERRIDE` to the `docker run` commands on this page too).
 
 This prints a URL. Open it in your browser, select your domain, and authorize. **Leave the container running** until you've clicked authorize — the cert is delivered to it via callback and saved into `cloudflared/cert.pem`. If you Ctrl+C before authorizing, no cert is written and step 2 will fail with `No file cert.pem in [...]`.
 

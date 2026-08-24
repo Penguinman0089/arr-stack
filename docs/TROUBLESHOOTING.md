@@ -496,37 +496,36 @@ open /home/nonroot/.cloudflared/config.yml: permission denied
 ```
 even though `ls -la ./cloudflared` shows wide-open `777` permissions and correct ownership (`65532:65532`).
 
-**Cause:** The `cloudflared` image hardcodes its process to run as UID `65532` ("nonroot") — the only service in this stack that runs as a fixed, unmapped UID instead of `${PUID}:${PGID}`. Some NAS platforms (Synology and Synology-derived OSes like UGOS) enforce a separate Windows-ACL-style permission layer on shared folders that is **completely invisible to `ls -la`/`getfacl`** and overrides POSIX bits — it only allows access to UIDs tied to a real NAS user account. Since `65532` matches no NAS account, every container mounting a path under that shared folder as UID `65532` gets `permission denied` on *any* file in it, regardless of `chmod`/`chown`.
+**Cause:** Some NAS platforms (Synology and Synology-derived OSes like UGOS) enforce a separate Windows-ACL-style permission layer on shared folders that is **completely invisible to `ls -la`/`getfacl`** and overrides POSIX bits — it blocks read access for *any* non-root UID, no matter what `chmod`/`chown` shows. `cloudflared` is the only service in this stack running as a plain, unprivileged UID (`65532`, "nonroot") with no additional capabilities; LinuxServer.io-based services (Sonarr, Radarr, etc.) also run unprivileged but work fine because their compose entries already add the `DAC_OVERRIDE` capability (see `x-security` block in [docker-compose.arr-stack.yml](../docker-compose.arr-stack.yml)) — `CAP_DAC_OVERRIDE` bypasses this kind of discretionary access check at the kernel level regardless of UID. Switching `cloudflared`'s `user:` to a different UID (e.g. `${PUID}:${PGID}`) does **not** fix this — every non-root UID is blocked equally; only `DAC_OVERRIDE` (or running as root) gets through.
 
-**Confirm this is the cause** (isolates a NAS-wide unmapped-UID block from a folder-specific issue):
+**Confirm this is the cause** (isolates a NAS-wide unprivileged-UID block from a folder-specific issue):
 ```bash
 docker run --rm --user 65532:65532 -v /path/to/some/known-good/folder:/test alpine ls -la /test
 # permission denied here too (on a folder that works fine for other containers) = confirms NAS-wide block
 ```
 
-**Fix:** Override `cloudflared`'s runtime user to match this stack's normal `${PUID}:${PGID}` (already added to [docker-compose.cloudflared.yml](../docker-compose.cloudflared.yml)):
+**Fix:** Add the `DAC_OVERRIDE` capability instead of changing the container's user (already added to [docker-compose.cloudflared.yml](../docker-compose.cloudflared.yml)):
 ```yaml
 services:
   cloudflared:
-    user: "${PUID}:${PGID}"
-    environment:
-      - HOME=/home/nonroot
+    cap_drop:
+      - ALL
+    cap_add:
+      - DAC_OVERRIDE
 ```
 
-> **Second gotcha:** overriding `user:` to a UID with no `/etc/passwd` entry in the (distroless) image breaks `$HOME` resolution — `cloudflared` (and `tunnel login` run standalone) then tries to write to `/.cloudflared` and fails with `mkdir /.cloudflared: permission denied`, even though the volume is correctly mounted at `/home/nonroot/.cloudflared`. Setting `HOME=/home/nonroot` explicitly fixes this regardless of which UID is running.
-
-Then re-chown the config directory to match and restart:
+Restart and verify:
 ```bash
-sudo chown -R ${PUID}:${PGID} cloudflared/
 docker compose -f docker-compose.cloudflared.yml up -d --force-recreate
 docker logs -f cloudflared   # look for "Registered tunnel connection"
 ```
 
-If `credentials.json`/`cert.pem` are also missing (e.g. wiped by an unrelated cleanup), regenerate them **for the existing tunnel** rather than creating a new one — this avoids having to redo DNS routes (note the `-e HOME=/home/nonroot` on every standalone `docker run`, for the same reason as above):
+If `credentials.json`/`cert.pem` are also missing (e.g. wiped by an unrelated cleanup), regenerate them **for the existing tunnel** rather than creating a new one — this avoids having to redo DNS routes. Since `docker run` here doesn't apply the compose file's `cap_add`, pass it explicitly:
 ```bash
-docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
-docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel list
-docker run --rm --user ${PUID}:${PGID} -e HOME=/home/nonroot -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel token --cred-file /home/nonroot/.cloudflared/credentials.json <tunnel-name-or-id>
+docker run --rm --cap-drop ALL --cap-add DAC_OVERRIDE -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
+docker run --rm --cap-drop ALL --cap-add DAC_OVERRIDE -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel list
+docker run --rm --cap-drop ALL --cap-add DAC_OVERRIDE -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel token --cred-file /home/nonroot/.cloudflared/credentials.json <tunnel-name-or-id>
 ```
+
 
 
