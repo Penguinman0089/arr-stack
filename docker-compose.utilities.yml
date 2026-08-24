@@ -432,8 +432,10 @@ services:
       - DAC_OVERRIDE      # worker reading ./landing bind mount - see docs/TROUBLESHOOTING.md
     # Keeps nginx's worker processes running as root (instead of dropping to uid 101) so
     # DAC_OVERRIDE above stays in effect for them too - capabilities are cleared on setuid(),
-    # so they'd otherwise be lost the moment workers dropped privileges. See docs/TROUBLESHOOTING.md.
-    command: ["nginx", "-g", "daemon off; user root;"]
+    # so they'd otherwise be lost the moment workers dropped privileges. `-g "user root;"`
+    # can't be used here since nginx.conf already declares `user nginx;` (duplicate directive
+    # error), so replace that line instead. See docs/TROUBLESHOOTING.md.
+    command: ["/bin/sh", "-c", "sed -i 's/^user  *nginx;/user root;/' /etc/nginx/nginx.conf && exec nginx -g 'daemon off;'"]
     restart: always
     networks:
       arr-stack:
