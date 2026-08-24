@@ -518,7 +518,9 @@ services:
     restart: always
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6767/"]
+      # Bazarr's Basic Auth (when enabled) blocks every path including /login with 401,
+      # unlike Readarr's dedicated /ping - so treat 401 as "server is up" too, not just 200.
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:6767/ | grep -qE '^(200|401)$'"]
       interval: 3m
       timeout: 10s
       retries: 2
@@ -611,7 +613,9 @@ services:
     restart: always
     logging: *default-logging
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8787/"]
+      # /ping is unauthenticated even when Readarr's auth is enabled - plain "/" 401s
+      # once auth is on, which curl -f treats as a failure despite the app being healthy.
+      test: ["CMD", "curl", "-f", "http://localhost:8787/ping"]
       interval: 3m
       timeout: 10s
       retries: 2
