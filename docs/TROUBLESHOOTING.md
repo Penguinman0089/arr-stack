@@ -488,3 +488,40 @@ ssh -vv user@your-nas.local 'exit' 2>&1 | grep 'kex: algorithm'
 
 **UGOS resilience:** The `sshd_config.d/` drop-in directory is less likely to be wiped than the main config (same principle as using `@reboot` crontab instead of `/etc/rc.local`). If a UGOS update does remove it, you'll just see the warning again — nothing breaks. The client-side config on your Mac is completely UGOS-proof.
 
+## Cloudflare Tunnel: Error 1033 (cloudflared Crash-Looping on "permission denied")
+
+**Symptom:** `https://*.yourdomain.com` returns Cloudflare **Error 1033** ("Cloudflare Tunnel error... unable to resolve"). `docker ps -a` shows `cloudflared` stuck in a `Restarting` loop, and `docker logs cloudflared` is just a wall of:
+```
+open /home/nonroot/.cloudflared/config.yml: permission denied
+```
+even though `ls -la ./cloudflared` shows wide-open `777` permissions and correct ownership (`65532:65532`).
+
+**Cause:** The `cloudflared` image hardcodes its process to run as UID `65532` ("nonroot") — the only service in this stack that runs as a fixed, unmapped UID instead of `${PUID}:${PGID}`. Some NAS platforms (Synology and Synology-derived OSes like UGOS) enforce a separate Windows-ACL-style permission layer on shared folders that is **completely invisible to `ls -la`/`getfacl`** and overrides POSIX bits — it only allows access to UIDs tied to a real NAS user account. Since `65532` matches no NAS account, every container mounting a path under that shared folder as UID `65532` gets `permission denied` on *any* file in it, regardless of `chmod`/`chown`.
+
+**Confirm this is the cause** (isolates a NAS-wide unmapped-UID block from a folder-specific issue):
+```bash
+docker run --rm --user 65532:65532 -v /path/to/some/known-good/folder:/test alpine ls -la /test
+# permission denied here too (on a folder that works fine for other containers) = confirms NAS-wide block
+```
+
+**Fix:** Override `cloudflared`'s runtime user to match this stack's normal `${PUID}:${PGID}` (already added to [docker-compose.cloudflared.yml](../docker-compose.cloudflared.yml)):
+```yaml
+services:
+  cloudflared:
+    user: "${PUID}:${PGID}"
+```
+Then re-chown the config directory to match and restart:
+```bash
+sudo chown -R ${PUID}:${PGID} cloudflared/
+docker compose -f docker-compose.cloudflared.yml up -d --force-recreate
+docker logs -f cloudflared   # look for "Registered tunnel connection"
+```
+
+If `credentials.json`/`cert.pem` are also missing (e.g. wiped by an unrelated cleanup), regenerate them **for the existing tunnel** rather than creating a new one — this avoids having to redo DNS routes:
+```bash
+docker run --rm --user ${PUID}:${PGID} -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel login
+docker run --rm --user ${PUID}:${PGID} -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel list
+docker run --rm --user ${PUID}:${PGID} -v ./cloudflared:/home/nonroot/.cloudflared cloudflare/cloudflared tunnel token --cred-file /home/nonroot/.cloudflared/credentials.json <tunnel-name-or-id>
+```
+
+
