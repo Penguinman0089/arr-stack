@@ -429,9 +429,11 @@ services:
     cap_add:
       - CHOWN             # nginx master chowns cache dirs to its worker user at startup
       - NET_BIND_SERVICE  # nginx binds port 80 as root
-      - SETUID            # nginx worker drops privileges to uid/gid 101
-      - SETGID
-      - DAC_OVERRIDE      # worker (uid 101) reading ./landing bind mount - see docs/TROUBLESHOOTING.md
+      - DAC_OVERRIDE      # worker reading ./landing bind mount - see docs/TROUBLESHOOTING.md
+    # Keeps nginx's worker processes running as root (instead of dropping to uid 101) so
+    # DAC_OVERRIDE above stays in effect for them too - capabilities are cleared on setuid(),
+    # so they'd otherwise be lost the moment workers dropped privileges. See docs/TROUBLESHOOTING.md.
+    command: ["nginx", "-g", "daemon off; user root;"]
     restart: always
     networks:
       arr-stack:
