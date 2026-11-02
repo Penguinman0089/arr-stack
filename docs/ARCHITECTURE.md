@@ -91,18 +91,17 @@ arr-stack network (172.20.0.0/24)
 │ 172.20.0.9   │ Bazarr       │ Subtitles                      │ Core             │
 │ 172.20.0.7   │ Lidarr       │ Music manager (bridge, not VPN)│ Optional         │
 │ 172.20.0.22  │ Readarr      │ Book manager (bridge, not VPN) │ Optional         │
-│ 172.20.0.24  │ Whisparr     │ Adult scene manager (bridge, not VPN)│ Optional   │
 │ 172.20.0.23  │ Audiobookshelf│ Audiobook/podcast server       │ Optional         │
 │ 172.20.0.10  │ Sonarr       │ TV manager (bridge, not VPN)   │ Core             │
 │ 172.20.0.11  │ Radarr       │ Movie manager (bridge, not VPN)│ Core             │
 │ 172.20.0.5   │ Pi-hole      │ DNS server                     │ Core             │
+│ 172.20.0.6   │ dnscrypt     │ Encrypted upstream for Pi-hole │ Core             │
 │ 172.20.0.2   │ Traefik      │ Reverse proxy                  │ + local DNS      │
 │ 172.20.0.12  │ Cloudflared  │ Tunnel to Cloudflare           │ + remote access (Cloudflared) │
 │ host-network │ Tailscale    │ Mesh VPN subnet router         │ + remote access (Tailscale)   │
 │ 172.20.0.13  │ Uptime Kuma  │ Monitoring                     │ Optional         │
 │ 172.20.0.14  │ duc          │ Disk usage                     │ Optional         │
 │ 172.20.0.15  │ Beszel       │ System monitoring              │ Optional         │
-│ 172.20.0.16  │ DIUN         │ Image update notifier          │ Optional         │
 │ 172.20.0.17  │ Tautulli     │ Plex monitoring/analytics      │ Optional         │
 │ 172.20.0.19  │ Homarr       │ Service dashboard              │ Optional         │
 │ 172.20.0.21  │ Landing Page │ Root domain placeholder        │ Optional         │
@@ -162,23 +161,25 @@ arr-stack network (172.20.0.0/24)
 
 ## Container Security
 
-All containers run with hardened defaults:
+All containers run with hardened defaults (Pi-hole's one exception is below):
 
 - **`no-new-privileges`** — Prevents processes from gaining additional privileges via `setuid`/`setgid` binaries
 - **`cap_drop: ALL`** — Drops all Linux capabilities by default
 
-Two YAML anchors define security profiles in each compose file:
+Two YAML anchors define security profiles (`docker-compose.arr-stack.yml` has both, `docker-compose.utilities.yml` the first; the other files set the same keys inline):
 
 | Anchor | Used by | Capabilities |
 |--------|---------|-------------|
 | `x-security` | All non-LSIO services | None by default (services add back only what they need) |
 | `x-security-lsio` | Plex, Sonarr, Radarr, Prowlarr, qBittorrent, SABnzbd, Bazarr | `CHOWN`, `SETUID`, `SETGID`, `DAC_OVERRIDE` (s6-overlay needs these to switch users during init) |
 
-Services that write to Docker volumes as root add back `CHOWN` + `DAC_OVERRIDE` (Seerr, Uptime Kuma, DUC, Beszel, DIUN, Configarr). Services with read-only or no volumes don't need any (FlareSolverr, Cloudflared, Traefik, Deunhealth, Beszel-agent).
+Root processes that write Docker volumes add back the capabilities their images require. Plex uses the LinuxServer capability set; Uptime Kuma, DUC and Homarr also need privilege-switching capabilities. Seerr runs as a non-root user and gets no effective capabilities from `cap_add`. Cloudflared retains `DAC_OVERRIDE` for its image-owned config path, and the landing page retains its NAS bind-mount permission workaround.
 
 Additional requirements:
-- **Gluetun** — adds `NET_ADMIN` (required to create VPN tunnel interfaces)
+- **Gluetun** — adds `NET_ADMIN` (required to create VPN tunnel interfaces), plus `CHOWN`, `DAC_OVERRIDE` and `SETUID`, which Docker's default set would have given it (gluetun chowns the OpenVPN config, and OpenVPN drops to `nonrootuser`; without `DAC_OVERRIDE` gluetun can't write `/tmp/gluetun/ip` on any VPN type)
+- **Tailscale** — adds `NET_ADMIN` (creates the `tailscale0` tun device, routes and ip rules) and `NET_RAW` (the image's `iptables` is the legacy build, which needs a raw socket; without it the subnet-router and exit-node rules silently fail). Its state files are root-owned and created by itself, so it needs no `CHOWN` or `DAC_OVERRIDE`
 - **Uptime Kuma** — adds `FOWNER` (sets ownership on created files)
+- **DUC** — adds `SETUID`, `SETGID` (nginx's workers drop to `www-data`)
 - **Pi-hole** — adds `NET_ADMIN`, `NET_RAW`, `CHOWN`, `SETUID`, `SETGID`, `SETFCAP`, `SYS_NICE`, `DAC_OVERRIDE`, and disables `no-new-privileges` (FTL uses `setcap` at startup)
 
 ## Design Decisions

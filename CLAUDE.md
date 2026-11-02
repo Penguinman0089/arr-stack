@@ -15,7 +15,7 @@ Docker media stack for Ugreen NAS. Edit NAS files (like `pihole/dnsmasq.d/02-loc
 
 This NAS runs other compose projects besides this one. At least one of them has its own network *and* joins `arr-stack` with the **static IP 172.20.0.20**, so Traefik can route to it. Its `.lan` mapping lives in `pihole/dnsmasq.d/02-local-dns.conf`, which is untracked and edited on the NAS.
 
-**IMPORTANT — this is a live hazard, not history.** That static assignment is what stops Docker handing out **Gluetun's reserved IP (172.20.0.3)** to a neighbouring container on reboot, which breaks the whole VPN stack with "Address already in use". The `ip_range: 172.20.0.128/25` in `docker-compose.traefik.yml` confines dynamic IPs to .128–.255 for the same reason. Never remove either without checking what else is on the network:
+**IMPORTANT — this is a live hazard, not history.** That static assignment is what stops Docker handing out **Gluetun's reserved IP (172.20.0.3)** to a neighbouring container on reboot, which breaks the whole VPN stack with "Address already in use". The `ip_range: 172.20.0.128/25` in `docker-compose.arr-stack.yml` confines dynamic IPs to .128–.255 for the same reason. Never remove either without checking what else is on the network:
 
 ```bash
 docker network inspect arr-stack --format '{{range .Containers}}{{.Name}}={{.IPv4Address}} {{end}}'
@@ -41,4 +41,8 @@ Back up a service's config volume before any version bump with a DB migration (`
 
 ## E2E Tests
 
-Run `npm run test:e2e` after any change to Docker Compose files, service config, networks, or ports. All 14 tests must pass. They screenshot every service UI and verify API responses.
+Run `npm run test:e2e` after any change to Docker Compose files, service config, networks, or ports. **Every test must pass** — don't hardcode a count here, the suite grows. It screenshots every service UI, verifies API responses, and compares per-service VPN egress.
+
+Two things that will bite you:
+- The suite needs the untracked **`.env.e2e`** to find the NAS. A git worktree won't have it — copy it from the main checkout. Without it the suite **fails rather than skips**, deliberately: a VPN leak check that didn't run is an unverified result, and exiting 0 would report it as a pass.
+- One killswitch test is skipped unless `ALLOW_DISRUPTIVE_TESTS=1`, because it stops the live gluetun container and interrupts real downloads. A run reporting one skip is normal.

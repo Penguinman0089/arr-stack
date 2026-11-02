@@ -30,6 +30,8 @@ set -euo pipefail
 # What is NEVER removed:
 #   - Items with any download progress (even if slow)
 #   - Healthy downloads (trackedDownloadStatus == "ok" with progress)
+#   - Downloads waiting for a manual import because Sonarr/Radarr matched
+#     them by ID. These are good files; the report lists them instead.
 #
 # After removal, a fresh search is triggered for each affected
 # series (Sonarr) or movie (Radarr) to find better-seeded releases.
@@ -43,6 +45,12 @@ set -euo pipefail
 # Derive stack directory from script location
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAS_STACK_DIR="$(dirname "$SCRIPT_DIR")"
+
+# Cron hands the script no environment and nothing else loads .env, so read
+# the alert webhook from it here. Without this, alerts never went anywhere.
+if [ -z "${HA_WEBHOOK_URL:-}" ] && [ -f "$NAS_STACK_DIR/.env" ]; then
+  HA_WEBHOOK_URL=$(sed -n 's/^HA_WEBHOOK_URL=//p' "$NAS_STACK_DIR/.env" | tail -n 1 | tr -d "\"'")
+fi
 LOG_FILE="$NAS_STACK_DIR/logs/queue-cleanup.log"
 MAX_LOG_LINES=1000
 
@@ -85,8 +93,9 @@ get_api_key() {
   if ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${container}$"; then
     return 1
   fi
+  # sed rather than grep -P, which BSD grep lacks, so the tests run on macOS.
   docker exec "$container" cat /config/config.xml 2>/dev/null \
-    | grep -oP '(?<=<ApiKey>)[^<]+' || return 1
+    | sed -n 's:.*<ApiKey>\([^<]*\)</ApiKey>.*:\1:p' || return 1
 }
 
 SONARR_KEY=$(get_api_key sonarr) || true
@@ -97,15 +106,22 @@ if [[ -z "$SONARR_KEY" ]] && [[ -z "$RADARR_KEY" ]]; then
   exit 1
 fi
 
+# The python below writes the Home Assistant notice here, since only it knows
+# what the run found.
+NOTICE_FILE=$(mktemp)
+trap 'rm -f "$NOTICE_FILE"' EXIT
+
 # --- Main cleanup logic (python3 for JSON processing) ---
-python3 - "$APPLY" "$VERBOSE" "$SONARR_KEY" "$RADARR_KEY" << 'PYEOF'
-import json, sys, subprocess, time
+python3 - "$APPLY" "$VERBOSE" "$SONARR_KEY" "$RADARR_KEY" "$NOTICE_FILE" "$NAS_STACK_DIR" << 'PYEOF'
+import json, re, sys, subprocess, time
 from datetime import datetime, timezone
 
 APPLY = sys.argv[1] == "true"
 VERBOSE = sys.argv[2] == "true"
 SONARR_KEY = sys.argv[3]
 RADARR_KEY = sys.argv[4]
+NOTICE_FILE = sys.argv[5]
+NAS_STACK_DIR = sys.argv[6]
 
 SERVICES = []
 if SONARR_KEY:
@@ -129,6 +145,7 @@ if RADARR_KEY:
 
 total_removed = 0
 total_searches = 0
+waiting = []  # (app, title) left for a manual import
 
 def api_get(port, path, key):
     url = f"http://localhost:{port}{path}"
@@ -166,6 +183,44 @@ def api_post_json(port, path, key, data):
     )
     return result.returncode == 0
 
+# How long a download may sit stalled before the sweep removes it. Long enough
+# that a torrent briefly losing its peers is left alone, short enough that a
+# dead one does not survive to the next weekly run.
+STALL_GRACE_HOURS = 24
+
+def item_age_hours(record):
+    """Hours since the item was added, or None if it carries no timestamp."""
+    added_str = record.get("added", "")
+    if not added_str:
+        return None
+    try:
+        added = datetime.fromisoformat(added_str.replace("Z", "+00:00"))
+        return (datetime.now(timezone.utc) - added).total_seconds() / 3600
+    except (ValueError, TypeError):
+        return None
+
+# Sonarr and Radarr word this "...release was matched to series by ID..." and
+# "...matched to movie by ID...".
+MATCHED_BY_ID = re.compile(r"matched to (series|movie) by id", re.IGNORECASE)
+
+def needs_manual_import(record):
+    """True for a finished download that Sonarr/Radarr grabbed by ID but won't
+    import on its own.
+
+    An ID search lets the indexer say which show or film a release is, so a
+    release whose name Sonarr can't recognise still gets grabbed (Netflix
+    releases of a Korean show under its romanised title, say). When it
+    finishes, Sonarr refuses to import it without a human, on purpose, in case
+    the indexer was wrong. The file is usually fine, and Sonarr has already
+    sent a "Needs manual import" notice. Removing it here would blocklist a
+    good release and throw the download away, so leave it and report it.
+    """
+    if record.get("trackedDownloadState") != "importBlocked":
+        return False
+    return any(MATCHED_BY_ID.search(m)
+               for sm in record.get("statusMessages", [])
+               for m in sm.get("messages", []))
+
 def is_stuck(record):
     """Determine if a queue record is stuck and should be removed."""
     status = record.get("status", "")
@@ -176,11 +231,25 @@ def is_stuck(record):
     sizeleft = record.get("sizeleft", 0)
 
     # Error-based: stalled, unavailable, missing, etc.
-    if tracked_status == "warning":
-        error_keywords = ["stall", "not available", "no files found",
-                          "import failed", "missing"]
+    #
+    # Sonarr surfaces a stalled torrent as status="warning" with
+    # trackedDownloadStatus="ok" -- gating this on tracked_status alone meant the
+    # keyword test never ran for the single most common stall. Check both fields.
+    # "not on your server" covers usenet grabs whose articles are past retention;
+    # those arrive as status="failed" and carry no `added` timestamp, so no
+    # age-based rule below can ever reach them.
+    if tracked_status == "warning" or status in ("warning", "failed"):
+        error_keywords = ["stall", "no connections", "not available",
+                          "no files found", "import failed", "missing",
+                          "not on your server"]
         if any(kw in error_msg for kw in error_keywords):
-            return "error", error_msg.strip()
+            age = item_age_hours(record)
+            # A torrent can stall briefly and recover. Only cull one that has
+            # been stalled long enough to be genuinely dead -- except usenet
+            # failures, which are terminal immediately and have no timestamp.
+            if status == "failed" or age is None or age > STALL_GRACE_HOURS:
+                suffix = f" for {age:.0f}h" if age is not None else ""
+                return "error", f"{error_msg.strip()}{suffix}"
 
     # Stuck imports (completed download but can't import)
     if tracked_state == "importing" and tracked_status == "warning":
@@ -200,7 +269,19 @@ def is_stuck(record):
         for sm in record.get("statusMessages", []):
             msgs.extend(sm.get("messages", []))
         all_msgs = " ".join(msgs).lower()
-        if "executable" in all_msgs or "not an upgrade" in all_msgs:
+        # "potentially dangerous" covers .scr/.lnk padding, which Sonarr words
+        # differently from the ".exe" case ("Found potentially dangerous file
+        # with extension: .scr"). Without it those releases download to 100%,
+        # refuse to import, and sit in the queue forever -- several had been
+        # stuck for over a month.
+        # "upgrade for existing" rather than "not an upgrade": Sonarr's actual
+        # wording is "Not a quality revision upgrade for existing episode
+        # file(s)", which the narrower phrase never matched -- one completed
+        # 2160p grab sat in the queue for 49 days because of it, holding disk
+        # in /data/usenet/complete for a file Sonarr already had as good.
+        if ("executable" in all_msgs or "upgrade for existing" in all_msgs
+                or "not an upgrade" in all_msgs
+                or "potentially dangerous" in all_msgs):
             reason = "; ".join(msgs[:2]) if msgs else "import pending with warnings"
             return "import_warning", reason
 
@@ -231,6 +312,17 @@ def is_stuck(record):
             except (ValueError, TypeError):
                 pass
 
+    # Partially-downloaded stalls. The age rules above only fire at exactly 0%
+    # (sizeleft == size) or with no size at all, so anything that grabbed a few
+    # percent and then lost every peer matched no branch and survived every
+    # weekly sweep indefinitely -- one title sat at 32% for 45 days this way.
+    if 0 < sizeleft < size:
+        age = item_age_hours(record)
+        if age is not None and age > STALL_GRACE_HOURS:
+            pct = (1 - sizeleft / size) * 100
+            if record.get("status") == "warning" or "stall" in error_msg:
+                return "stalled", f"stalled at {pct:.0f}% for {age:.0f}h"
+
     return None, None
 
 for svc in SERVICES:
@@ -255,6 +347,13 @@ for svc in SERVICES:
 
     stuck_items = []
     for record in all_records:
+        if needs_manual_import(record):
+            # A season pack is one queue record per episode; list it once.
+            entry = (svc["name"], record.get("title", "unknown"))
+            if entry not in waiting:
+                waiting.append(entry)
+                print(f"  - Left for manual import: {entry[1][:70]}")
+            continue
         reason_type, reason_msg = is_stuck(record)
         if reason_type:
             stuck_items.append((record, reason_type, reason_msg))
@@ -332,13 +431,38 @@ mode = "APPLIED" if APPLY else "DRY RUN"
 print(f"Summary ({mode}): {total_removed} items removed, {total_searches} searches triggered")
 if not APPLY and total_removed > 0:
     print("Run with --apply to actually remove stuck items")
+if waiting:
+    print(f"Left for manual import: {len(waiting)} (Activity → Queue in Sonarr/Radarr)")
+
+# The weekly report. A download still waiting for a manual import is worth a
+# push (warning); anything else is a routine note for the HA panel (info).
+if waiting:
+    n = len(waiting)
+    names = [t for _, t in waiting]
+    shown = ", ".join(names[:3]) + (f" and {n - 3} more" if n > 3 else "")
+    apps = " / ".join(sorted({a for a, _ in waiting}))
+    downloads, them = ("download", "it") if n == 1 else ("downloads", "them")
+    notice = {
+        "title": f"Still needs manual import: {n} {downloads}",
+        "message": f"The weekly cleanup left {n} {downloads} waiting for a manual "
+                   f"import: {shown}. Open {apps} → Activity → Queue and import {them}.",
+        "level": "warning",
+    }
+else:
+    notice = {
+        "title": "Queue Cleanup",
+        "message": f"Weekly queue cleanup completed. Check {NAS_STACK_DIR}/logs/queue-cleanup.log for details.",
+        "level": "info",
+    }
+with open(NOTICE_FILE, "w") as f:
+    json.dump(notice, f, ensure_ascii=False)
 PYEOF
 
 # --- Optional: HA webhook notification ---
 if $APPLY && [[ -n "${HA_WEBHOOK_URL:-}" ]]; then
   curl -s -m 10 -X POST "$HA_WEBHOOK_URL" \
     -H "Content-Type: application/json" \
-    -d "{\"title\":\"Queue Cleanup\",\"message\":\"Weekly queue cleanup completed. Check $NAS_STACK_DIR/logs/queue-cleanup.log for details.\"}" || true
+    --data-binary "@$NOTICE_FILE" || true
 fi
 
 # --- Trim log file ---

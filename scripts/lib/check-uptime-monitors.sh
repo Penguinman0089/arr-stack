@@ -20,6 +20,12 @@ check_uptime_monitors() {
         "Radarr"
         "Sonarr"
         "Traefik"
+        # Push monitor, not an HTTP one: scripts/check-vpn.sh pings it from cron
+        # every 5 minutes and Kuma alerts when the pings STOP. Listed here so
+        # that deleting it in the UI shows up as a warning — a monitor whose
+        # whole job is to notice silence fails silently when it is the thing
+        # that goes missing.
+        "VPN Check"
     )
 
     # Skip if NAS config not available
@@ -53,10 +59,10 @@ check_uptime_monitors() {
 
     # Check for missing monitors
     for service in "${expected[@]}"; do
-        local service_lower=$(echo "$service" | tr '[:upper:]' '[:lower:]')
-        local found=0
+        local service_lower found=0 monitor_lower
+        service_lower=$(echo "$service" | tr '[:upper:]' '[:lower:]')
         while IFS= read -r monitor; do
-            local monitor_lower=$(echo "$monitor" | tr '[:upper:]' '[:lower:]')
+            monitor_lower=$(echo "$monitor" | tr '[:upper:]' '[:lower:]')
             if [[ "$monitor_lower" == "$service_lower" ]]; then
                 found=1
                 break
@@ -64,7 +70,7 @@ check_uptime_monitors() {
         done <<< "$actual"
         if [[ $found -eq 0 ]]; then
             echo "    WARNING: Missing monitor for '$service'"
-            ((warnings++))
+            warnings=$((warnings + 1))
         fi
     done
 
@@ -72,10 +78,10 @@ check_uptime_monitors() {
     local known_extras=("Home Assistant" "Reolink NVR" "Cloudflared Metrics" "Plex (External)")
     while IFS= read -r monitor; do
         [[ -z "$monitor" ]] && continue
-        local found=0
-        local monitor_lower=$(echo "$monitor" | tr '[:upper:]' '[:lower:]')
+        local found=0 monitor_lower service_lower
+        monitor_lower=$(echo "$monitor" | tr '[:upper:]' '[:lower:]')
         for service in "${expected[@]}" "${known_extras[@]}"; do
-            local service_lower=$(echo "$service" | tr '[:upper:]' '[:lower:]')
+            service_lower=$(echo "$service" | tr '[:upper:]' '[:lower:]')
             if [[ "$monitor_lower" == "$service_lower" ]]; then
                 found=1
                 break
@@ -83,7 +89,7 @@ check_uptime_monitors() {
         done
         if [[ $found -eq 0 ]]; then
             echo "    WARNING: Unknown monitor '$monitor' (removed service?)"
-            ((warnings++))
+            warnings=$((warnings + 1))
         fi
     done <<< "$actual"
 

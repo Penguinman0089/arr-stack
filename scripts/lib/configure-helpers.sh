@@ -29,44 +29,110 @@ $expr
 # ============================================
 
 log()   { echo "[configure] $1"; }
-ok()    { echo "  ✓ $1"; CONFIGURED=$((CONFIGURED + 1)); }
+# In a dry run, ok() is reached only after the same state check a real run
+# performs, and the write it would have followed was suppressed at the choke
+# points (_api_request, bazarr_settings_post, and the few raw curl/docker
+# sites in configure-apps.sh). So "Would:" here means "checked, and missing" —
+# not "listed unconditionally", which is what the old early-return blocks did.
+ok() {
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+        echo "  [dry-run] Would: $1"; WOULD=$((WOULD + 1))
+    else
+        echo "  ✓ $1"; CONFIGURED=$((CONFIGURED + 1))
+    fi
+}
 skip()  { echo "  - $1 (already configured)"; SKIPPED=$((SKIPPED + 1)); }
 fail()  { echo "  ✗ $1"; FAILED=$((FAILED + 1)); }
 info()  { echo "  $1"; }
-dry()   { echo "  [dry-run] Would: $1"; }
+verbose() { [[ "${VERBOSE:-false}" == "true" ]] && echo "  [verbose] $1" >&2; return 0; }
 
 # ============================================
 # HTTP helpers
 # ============================================
 
+# Every request is bounded. API_TIMEOUT (default 60 s) caps the whole
+# transfer, --connect-timeout 5 caps the handshake, and a single call can
+# raise its own cap with API_MAX_TIME=<s> in front of it — the Bazarr
+# language-profile write does (BAZARR_SCAN_TIMEOUT, default 600 s), because
+# Bazarr rescans the whole library inside that request. Before this, one
+# hung handler held the script open forever (Bazarr's Sonarr/Radarr SignalR
+# restart, 2026-09-10), and the same class exists for every *arr write that
+# runs a connection test before answering.
+API_TIMEOUT="${API_TIMEOUT:-60}"
+BAZARR_SCAN_TIMEOUT="${BAZARR_SCAN_TIMEOUT:-600}"
+for _t in API_TIMEOUT BAZARR_SCAN_TIMEOUT; do
+    if ! [[ "${!_t}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: $_t must be a positive integer number of seconds, got '${!_t}'" >&2
+        exit 1
+    fi
+done
+unset _t
+
+# Run curl once and expose the result. Sets HTTP_RC (curl's own exit code),
+# HTTP_CODE and HTTP_BODY. Returns 0 only when an HTTP exchange completed;
+# transport failures — refused, DNS, reset, timeout — return 1 with HTTP_RC
+# set, and HTTP_CODE is never trusted on that path. That distinction is the
+# whole point: curl still emits "000" for its -w write-out when the connection
+# failed, and code that parsed the write-out alone treated "000" as an answer.
+#
+# Usage: _curl_capture "$url" [curl args...]
+_curl_capture() {
+    local url="$1"; shift
+    local max_time="${API_MAX_TIME:-$API_TIMEOUT}"
+    local response
+    HTTP_RC=0; HTTP_CODE=""; HTTP_BODY=""
+    # API_MAX_TIME is read straight from the environment, so it gets the same
+    # check the knobs get at load: "0" would tell curl "no limit".
+    if ! [[ "$max_time" =~ ^[1-9][0-9]*$ ]]; then
+        echo "ERROR: API_MAX_TIME must be a positive integer number of seconds, got '${max_time}'" >&2
+        HTTP_RC=2
+        return 1
+    fi
+    response=$(curl -s --connect-timeout 5 --max-time "$max_time" -w '\n%{http_code}' -o - "$@" "$url") || HTTP_RC=$?
+    if [[ $HTTP_RC -ne 0 ]]; then
+        if [[ $HTTP_RC -eq 28 ]]; then
+            verbose "$url → no response within ${max_time}s (curl exit 28)"
+        else
+            verbose "$url → curl exit ${HTTP_RC}, no HTTP exchange"
+        fi
+        return 1
+    fi
+    # The write-out is the last line; everything before it is the body.
+    HTTP_CODE=${response##*$'\n'}
+    HTTP_BODY=${response%$'\n'*}
+    return 0
+}
+
 # Usage: body=$(api_get "url" "header1" "header2" ...)
 #        body=$(api_post "url" "application/json" '{"k":"v"}' "header1" ...)
+#
+# Returns 0 on a 2xx and 1 on anything else — never the HTTP status itself.
+# The previous version ended with `return "$code"`, and bash reads "000" as
+# 0: every write that failed at the transport layer reported ✓ and counted
+# as configured. A timeout is a failure like any other here; HTTP_RC says
+# which (28) for anyone who needs to know.
 _api_request() {
     local method="$1" url="$2"; shift 2
-    local args=(-s -w '\n%{http_code}' -o -)
+    local args=()
     if [[ "$method" != "GET" ]]; then
         local content_type="$1" data="$2"; shift 2
         args+=(-X "$method" -H "Content-Type: $content_type")
         if [[ -n "$data" ]]; then args+=(--data "$data"); fi
     fi
+    local h
     for h in "$@"; do args+=(-H "$h"); done
-    local response
-    response=$(curl "${args[@]}" "$url")
-    local code
-    code=$(echo "$response" | tail -1)
-    local body
-    body=$(echo "$response" | sed '$d')
-    if [[ "$code" =~ ^2 ]]; then
-        echo "$body"
+    # Dry run: reads go through so state checks are real; writes are reported
+    # as done without being sent.
+    if [[ "${DRY_RUN:-false}" == "true" && "$method" != "GET" ]]; then return 0; fi
+    if ! _curl_capture "$url" "${args[@]}"; then return 1; fi
+    if [[ "$HTTP_CODE" =~ ^2 ]]; then
+        echo "$HTTP_BODY"
         return 0
-    else
-        [[ "$method" != "GET" ]] && echo "$body"
-        if [[ "${VERBOSE:-false}" == "true" ]]; then
-            echo "  [verbose] $method $url → HTTP $code" >&2
-            echo "  [verbose] Response: $body" >&2
-        fi
-        if [[ "$method" == "GET" ]]; then return 1; else return "$code"; fi
     fi
+    [[ "$method" != "GET" ]] && echo "$HTTP_BODY"
+    verbose "$method $url → HTTP $HTTP_CODE"
+    verbose "Response: $HTTP_BODY"
+    return 1
 }
 
 api_get()  { _api_request GET  "$@"; }
@@ -170,30 +236,71 @@ qbit_auth() {
 #
 # Usage:
 #   bazarr_settings_post "$BASE" "$AUTH" "settings-sonarr-ip=sonarr" "settings-sonarr-port=8989"
+#
+# Returns 0 on a 2xx, 1 on any failure. On a timeout it prints the diagnosis
+# itself — naming the bound that applied — so callers keep the plain
+# `if bazarr_settings_post …; then ok … else fail …` shape and every call
+# site gets the same explanation. The bound is API_TIMEOUT, or API_MAX_TIME
+# when a call sets it (the language-profile write sets BAZARR_SCAN_TIMEOUT).
+#
+# The timeout is there because Bazarr can hold a settings POST open forever.
+# save_settings() in app/config.py applies each key in memory, writes
+# config.yaml, and then — still inside the request — calls
+# sonarr_signalr_client.restart() when use_sonarr or the Sonarr
+# ip/port/base_url/ssl/apikey changed (radarr_signalr_client likewise). The
+# client's start() is `while not started: try connection.start() except
+# ConnectionError: sleep(5)` with no attempt limit, so when Bazarr cannot
+# reach Sonarr or Radarr the handler never returns. Seen on the NAS 2026-09-10
+# against a throwaway bazarr:1.6.0 with no Sonarr on its network. Because the
+# write happens before the restart, a timed-out POST has usually landed and
+# the next run compares the live settings and skips — but "usually": the same
+# exit fires if the connect itself stalls, when nothing was sent.
+#
+# Bazarr does NOT restart its process on a settings POST (read from v1.6.0:
+# the only restarts on that path are the two SignalR clients). Everything
+# this script writes is live as soon as the POST returns, so there is no
+# container bounce after the Bazarr section.
 bazarr_settings_post() {
     local BASE="$1" AUTH="$2"; shift 2
-    local args=(-s -w '\n%{http_code}' -o - -X POST -H "$AUTH")
-    local kv
+    local args=(-X POST -H "$AUTH") kv
     for kv in "$@"; do args+=(--data-urlencode "$kv"); done
 
-    local response code body
-    response=$(curl "${args[@]}" "${BASE}/api/system/settings")
-    code=$(echo "$response" | tail -1)
-    body=$(echo "$response" | sed '$d')
+    # Dry run: never sent. A leaked POST would write config.yaml for real.
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then return 0; fi
 
-    if [[ "$code" =~ ^2 ]]; then
-        return 0
+    local max_time="${API_MAX_TIME:-$API_TIMEOUT}"
+    if ! _curl_capture "${BASE}/api/system/settings" "${args[@]}"; then
+        if [[ $HTTP_RC -eq 28 ]]; then
+            info "  Bazarr gave no answer within ${max_time}s. The write may have landed — re-run to check."
+            if [[ "${API_MAX_TIME:-}" == "$BAZARR_SCAN_TIMEOUT" && "$max_time" == "$BAZARR_SCAN_TIMEOUT" ]]; then
+                info "  This write makes Bazarr rescan the whole library before answering; BAZARR_SCAN_TIMEOUT raises the bound."
+            else
+                info "  If Bazarr cannot reach Sonarr/Radarr its handler blocks forever restarting its SignalR client; API_TIMEOUT raises the bound."
+            fi
+        fi
+        return 1
     fi
-    if [[ "${VERBOSE:-false}" == "true" ]]; then
-        echo "  [verbose] POST ${BASE}/api/system/settings → HTTP $code" >&2
-        echo "  [verbose] Response: $body" >&2
-    fi
+    if [[ "$HTTP_CODE" =~ ^2 ]]; then return 0; fi
+    verbose "POST ${BASE}/api/system/settings → HTTP $HTTP_CODE"
+    verbose "Response: $HTTP_BODY"
+    # A 406 names the field Bazarr's validator rejected — the one diagnostic
+    # that has solved every wire-format problem here, so it is not gated on -v.
+    if [[ "$HTTP_CODE" == "406" ]]; then info "  Bazarr rejected the settings (406): ${HTTP_BODY:0:200}"; fi
     return 1
 }
 
 # ============================================
 # Custom formats
 # ============================================
+
+# Release titles that mean HDR10+: an explicit tag, or a bare "HDR" from a
+# service that streams HDR10+ (Amazon, Apple TV+, Paramount+). The (?<!\[)
+# keeps the file's own name out of it. Sonarr and Radarr name a file
+# "[HDR10Plus]" from its mediainfo, and a custom format matches the file name
+# as well as the release title. If the name matched, a scene "HDR" file would
+# score below the release it came from once imported, every other release
+# would then look like an upgrade, and each would be downloaded in turn.
+HDR10PLUS_TITLE_RE='(?<!\[)\bhdr10(\+|p\b|[ .\-_]?plus\b)|\b(amzn|atvp|pmtp)\b.*\bhdr\b|\bhdr\b.*\b(amzn|atvp|pmtp)\b'
 
 # Ensure a custom format exists and is scored in every quality profile.
 #
@@ -218,8 +325,15 @@ print(ids[0] if ids else '')")
     else
         local cf_payload cf_result
         cf_payload="{\"name\":\"${cf_name}\",\"includeCustomFormatWhenRenaming\":false,\"specifications\":${cf_specs}}"
-        cf_result=$(api_post "${BASE}/api/v3/customformat" "application/json" "$cf_payload" "$AUTH") || true
-        cf_id=$(json_extract "$cf_result" "print(data.get('id', ''))")
+        if [[ "${DRY_RUN:-false}" == "true" ]]; then
+            # No id comes back from a write that was never sent. -1 matches no
+            # profile's formatItems, so the loop below reports every profile as
+            # needing the score — which is exactly what a real run would do.
+            cf_id=-1
+        else
+            cf_result=$(api_post "${BASE}/api/v3/customformat" "application/json" "$cf_payload" "$AUTH") || true
+            cf_id=$(json_extract "$cf_result" "print(data.get('id', ''))")
+        fi
         if [[ -n "$cf_id" ]]; then
             ok "${name}: added ${cf_name} custom format"
         else
@@ -255,6 +369,44 @@ print(json.dumps(data))")
             fail "${name}: score ${cf_name} in profile ${pid}"
         fi
     done
+}
+
+# Raise every quality profile's "Upgrade Until Custom Format Score" to at
+# least the given score.
+#
+# Usage:
+#   ensure_cutoff_format_score "$BASE" "$AUTH" "Sonarr" 500
+#
+# Only ever raises. A profile already set higher (configarr's until_score,
+# say) is left alone, so this never fights a deliberate choice.
+ensure_cutoff_format_score() {
+    local BASE="$1" AUTH="$2" name="$3" cutoff="$4"
+
+    local profiles profile_ids
+    profiles=$(api_get "${BASE}/api/v3/qualityprofile" "$AUTH") || true
+    profile_ids=$(json_extract "$profiles" "
+for p in data:
+    print(p['id'])")
+
+    local pid profile updated_profile raised=0
+    for pid in $profile_ids; do
+        profile=$(api_get "${BASE}/api/v3/qualityprofile/${pid}" "$AUTH") || continue
+        if json_extract "$profile" "sys.exit(0 if data.get('cutoffFormatScore', 0) >= ${cutoff} else 1)"; then
+            continue
+        fi
+        raised=1
+        updated_profile=$(json_extract "$profile" "
+data['cutoffFormatScore'] = ${cutoff}
+print(json.dumps(data))")
+        if api_put "${BASE}/api/v3/qualityprofile/${pid}" "application/json" "$updated_profile" "$AUTH" >/dev/null 2>&1; then
+            ok "${name}: profile ${pid} upgrades until custom format score ${cutoff}"
+        else
+            fail "${name}: raise profile ${pid}'s upgrade-until custom format score to ${cutoff}"
+        fi
+    done
+    if [[ $raised -eq 0 ]]; then
+        skip "${name}: upgrade until custom format score ${cutoff}"
+    fi
 }
 
 # ============================================
@@ -309,22 +461,6 @@ configure_arr_service() {
         priority_older="olderMoviePriority"
     fi
 
-    if $DRY_RUN; then
-        dry "Add root folder ${root_path}"
-        dry "Add qBittorrent download client (category: ${category})"
-        if $SABNZBD_RUNNING; then dry "Add SABnzbd download client (category: ${category})"; fi
-        dry "Enable NFO metadata (Kodi/Emby)"
-        dry "Set TRaSH naming scheme"
-        dry "Add Reject ISO custom format"
-        dry "Score Reject ISO at -10000 in quality profiles"
-        dry "Add DV (Profile 5) custom format"
-        dry "Score DV (Profile 5) at -1000 in quality profiles"
-        dry "Add DV HDR10 (Profile 8.1) custom format"
-        dry "Score DV HDR10 (Profile 8.1) at 500 in quality profiles"
-        if $SABNZBD_RUNNING; then dry "Add delay profile (Usenet 0, Torrent 30)"; fi
-        return
-    fi
-
     # --- Root folder ---
     local roots
     roots=$(api_get "${BASE}/api/v3/rootfolder" "$AUTH") || true
@@ -339,6 +475,10 @@ configure_arr_service() {
     fi
 
     # --- Download client: qBittorrent ---
+    # Sonarr/Radarr sit on the bridge; the clients listen inside gluetun's
+    # namespace, so they are reached by gluetun's name, never `localhost`
+    # (docs/MIGRATION-arr-off-vpn.md). Prowlarr, which shares that namespace,
+    # is the one that uses localhost — see configure_prowlarr.
     local clients
     clients=$(api_get "${BASE}/api/v3/downloadclient" "$AUTH") || true
     if json_extract "$clients" "sys.exit(0 if any(c.get('name','').lower() == 'qbittorrent' for c in data) else 1)"; then
@@ -354,7 +494,7 @@ configure_arr_service() {
     "implementation": "QBittorrent",
     "configContract": "QBittorrentSettings",
     "fields": [
-        {"name": "host", "value": "localhost"},
+        {"name": "host", "value": "gluetun"},
         {"name": "port", "value": 8085},
         {"name": "username", "value": "${QBIT_USERNAME}"},
         {"name": "password", "value": "${QBIT_PASSWORD}"},
@@ -390,7 +530,7 @@ QBIT_JSON
     "implementation": "Sabnzbd",
     "configContract": "SabnzbdSettings",
     "fields": [
-        {"name": "host", "value": "localhost"},
+        {"name": "host", "value": "gluetun"},
         {"name": "port", "value": 8080},
         {"name": "apiKey", "value": "${SABNZBD_API_KEY}"},
         {"name": "${cat_field}", "value": "${category}"},
@@ -474,10 +614,53 @@ print(str(xbmc[0].get('enable', False)).lower() if xbmc else 'false')")
     local hdr_no='{"name":"No HDR10 fallback","implementation":"ReleaseTitleSpecification","negate":true,"required":true,"fields":[{"name":"value","value":"\\bhdr|\\bhlg\\b|\\bpq\\b"}]}'
     local disc_no='{"name":"Not a disc source","implementation":"ReleaseTitleSpecification","negate":true,"required":true,"fields":[{"name":"value","value":"\\b(blu-?ray|remux|bdrip|bdremux)\\b"}]}'
 
+    local dv81_score=500
     ensure_custom_format "$BASE" "$AUTH" "$name" "DV (Profile 5)" -1000 \
         "[${dv_token},${hdr_no},${disc_no}]"
-    ensure_custom_format "$BASE" "$AUTH" "$name" "DV HDR10 (Profile 8.1)" 500 \
+    ensure_custom_format "$BASE" "$AUTH" "$name" "DV HDR10 (Profile 8.1)" "$dv81_score" \
         "[${dv_token},${hdr_yes}]"
+
+    # --- Custom Format: HDR10+ with no Dolby Vision ---
+    #
+    # HDR10+ sits on an HDR10 base layer, yet a display with HDR10 and no
+    # HDR10+ doesn't get direct play: Jellyfin transcodes it, and on a Fire
+    # TV Cube driving an LG BX that froze within seconds. With Dolby Vision
+    # alongside, the player takes the DV and plays it.
+    #
+    # Titles rarely say so. Of 68 HDR10+-only files in one library, 2 titles
+    # said HDR10+ and 66 said "HDR", so the streaming service is the second
+    # signal: Amazon's "HDR" was HDR10+ 36 times in 37, Apple TV+'s and
+    # Paramount+'s every time, Netflix's never. Scene titles name no service
+    # and split 27 HDR10+ to 25 HDR10, so they are left alone, because
+    # refusing them would refuse good HDR10 too. The Dolby Vision upgrade
+    # below is the way out for those. Against that library this refuses 40 of
+    # the 68 and one HDR10 file (an Amazon WEBRip re-encode), and nothing else.
+    local dv_no='{"name":"No Dolby Vision","implementation":"ReleaseTitleSpecification","negate":true,"required":true,"fields":[{"name":"value","value":"\\b(dv|dovi|dolby[ .\\-_]?vision)\\b"}]}'
+    local hdr10p_yes="{\"name\":\"HDR10+\",\"implementation\":\"ReleaseTitleSpecification\",\"negate\":false,\"required\":true,\"fields\":[{\"name\":\"value\",\"value\":\"${HDR10PLUS_TITLE_RE//\\/\\\\}\"}]}"
+    ensure_custom_format "$BASE" "$AUTH" "$name" "HDR10+ (no DV)" -1000 \
+        "[${hdr10p_yes},${dv_no}]"
+
+    # --- Keep upgrading until a file scores as Dolby Vision 8.1 ---
+    #
+    # The score above only ranks releases at grab time. Profiles are created
+    # with an "Upgrade Until Custom Format Score" of 0, so a file that meets
+    # the quality cutoff at score 0 is finished: when a Profile 8.1 release
+    # turns up later, nothing replaces it. That stranded HDR10+-only 4K WEB
+    # files, which a display with HDR10 but no HDR10+ can't direct-play.
+    # Jellyfin transcodes or remuxes them instead, and on a Fire TV playback
+    # froze within seconds, while the same episode as DV + HDR10+
+    # direct-played.
+    #
+    # The format above refuses the releases whose titles give them away. The
+    # rest say only "HDR", and their HDR10+ metadata shows up in the file's
+    # own mediainfo only after import. For those, upgrading on the Dolby
+    # Vision score is the lever that works.
+    #
+    # It can't loop. 8.1 is the only format scored above 0, so the only
+    # upgrade this opens is to an 8.1 release. A file scores at least what its
+    # release did (the formats match the stored release title as well as the
+    # file name), so the upgraded file sits at the cutoff and stays there.
+    ensure_cutoff_format_score "$BASE" "$AUTH" "$name" "$dv81_score"
 
     # --- Delay profile (if SABnzbd running — prefer Usenet) ---
     if $SABNZBD_RUNNING; then

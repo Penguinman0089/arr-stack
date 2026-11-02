@@ -19,7 +19,7 @@ name: cloudflared
 
 services:
   cloudflared:
-    image: cloudflare/cloudflared:2026.8.2
+    image: cloudflare/cloudflared:2026.10.7
     container_name: cloudflared
     # The image's own /home/nonroot is baked in as mode 700 owned by UID 65532 - any other
     # UID (including ${PUID}:${PGID}) gets "permission denied" just entering that directory,

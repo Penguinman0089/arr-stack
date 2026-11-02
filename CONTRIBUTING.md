@@ -127,6 +127,31 @@ The actual `.yml` files are gitignored, so:
 
 ---
 
+## Continuous Integration
+
+`.github/workflows/ci.yml` runs on pull requests to `main`, on pushes to `main`, nightly, and on manual dispatch. It does not replace the rule that every change is tested on the NAS before it reaches `main` — nothing in CI can reach the stack — it front-loads the checks that don't need it, and it is the only gate a contributor without the local hooks passes through.
+
+Branch protection on `main` requires the three blocking jobs by name. The names below are exact: rename one in the workflow and it silently drops out of the gate.
+
+| job | what it runs | blocks merge? |
+|---|---|---|
+| `bats suite` | `./setup-hooks.sh`, then `tests/run-tests.sh`: compose validity, ports and IPs, secrets hygiene, env documentation, doc links, container posture, shellcheck at `error`, the unit tests for `configure-apps.sh`, and the architecture rules (download clients inside gluetun's namespace, project names, the `arr-stack` subnet pins). The pre-commit hook runs its own eleven checks; the two overlap in intent, and the bats suite drives several of the hook's check functions directly. Registry-tag checks are guaranteed a network here. The TAP results go to the run summary. | yes |
+| `lint (actionlint, hadolint, shellcheck warnings)` | actionlint over the workflows (its image bundles shellcheck, so the `run:` blocks are checked too); hadolint over the devcontainer Dockerfile with `.hadolint.yaml`; shellcheck at `warning` over `scripts/pre-commit` and every tracked `*.sh` — advisory: printed and annotated, never fails the job, though a shellcheck that cannot run at all does | yes, except the advisory step |
+| `supply chain (trivy, sbom)` | resolves a `package-lock.json` (gitignored, so CI writes one with `npm install --package-lock-only`; without it neither tool sees any JavaScript); syft SBOM, SPDX + CycloneDX, uploaded as the `sbom` artifact; trivy over the tree for vulnerabilities, misconfiguration and secrets, failing at HIGH/CRITICAL. Both include npm dev dependencies (the only kind this repo has) and skip `node_modules` and the vendored bats submodules | yes |
+| `nightly — trivy over every compose image` | trivy (vulnerabilities, `linux/amd64` as on the NAS) over every image the compose files use, listed by `docker compose config --profile '*'` so profile-gated services such as configarr are included — JSON reports in the `trivy-images` artifact and a per-image count table in the run summary (an image that could not be scanned is a row that says so) | never — diagnostic |
+| `nightly — the devcontainer builds` | a `docker build` of the devcontainer Dockerfile, which nothing else builds | never — diagnostic |
+
+Run the blocking checks locally before pushing: `./setup-hooks.sh && ./tests/run-tests.sh` is the whole `bats suite` job. The lint and supply-chain steps each run one digest-pinned image, named in the job's `env:` block — copy the step's `docker run` line with that image to reproduce it (the trivy scan expects the `trivy-cache` volume that the database-fetch step fills). [`docs/QUALITY-CONTROL-MAP.md`](docs/QUALITY-CONTROL-MAP.md) says which surface covers which capability, and where nothing does.
+
+### Pinning policy
+
+Everything that can float is pinned, and the pin lives next to a human-readable version so a bump is one visible line:
+
+- **Compose images** — exact tags (`lscr.io/linuxserver/sonarr:4.0.15`), never `latest`; `tests/compose-validation.bats` fails on `latest` or an untagged image and checks each tag exists on its registry. A major-only tag (`:2` rather than `:2.5.5`) passes the test but still floats — prefer the full version. Renovate opens the bumps; every bump is tested on the NAS before merge.
+- **GitHub Actions** — commit SHAs with the version in a trailing comment (`actions/checkout@3d3c42e… # v7.0.1`). Renovate keeps them current (`helpers:pinGitHubActionDigests`).
+- **CI tool images** — tag plus digest (`aquasec/trivy:0.74.0@sha256:…`). Bumped by hand, digest and comment together: `docker buildx imagetools inspect <image> --format '{{.Manifest.Digest}}'`.
+- **The devcontainer** — deliberately tracks unpinned apt and npm packages; it is a development box, not a deployment. hadolint's version-pinning rules are ignored for it in `.hadolint.yaml`, with the reason.
+
 ## Pre-commit Hooks
 
 This repo includes validation hooks that run on `git commit`:
@@ -136,7 +161,7 @@ This repo includes validation hooks that run on `git commit`:
 | Secrets | Yes | Detects real API keys, private keys, bcrypt hashes |
 | Env vars | Yes | Ensures compose `${VAR}` are documented in `.env.example` |
 | YAML syntax | Yes | Catches invalid YAML before it breaks deployment |
-| Port/IP conflicts | Yes | Detects duplicate ports or static IPs |
+| Port/IP conflicts | Yes | Detects host ports or static IPs used twice, across every compose file (reads `docker compose config`; skipped without docker compose or python3) |
 | Hardcoded domain | Block | Detects your hostname in tracked files (leaks identity) |
 | Hardcoded domain | Warn | Detects your domain in tracked files (may be intentional) |
 | NAS .env backup | Warn | Checks `.env.nas.backup` matches NAS |
@@ -172,7 +197,7 @@ rm .git/hooks/pre-commit
 
 ### SSH-based Checks (NAS .env backup, Uptime monitors)
 
-The last two checks require SSH access to your NAS. They gracefully skip when:
+Three checks require SSH — the `.env` backup sync, the Uptime Kuma monitors and duplicate `.lan` domains — and the domain-accessibility check needs the NAS config but not SSH; all access to your NAS. They gracefully skip when:
 - NAS is not reachable (ping fails)
 - SSH port is blocked/closed
 - SSH authentication fails
@@ -236,7 +261,7 @@ Every version-changing release follows this order. Doing it as one unbroken flow
    ```bash
    npm run test:e2e
    ```
-   This logs into each service, takes screenshots of every dashboard, and asserts root folders and media libraries are present. All 14 tests must pass. Screenshots are saved to `tests/e2e/screenshots/` for visual review.
+   This logs into each service, takes screenshots of every dashboard, and asserts root folders and media libraries are present. Every test must pass; one skip is normal (the killswitch test only runs with `ALLOW_DISRUPTIVE_TESTS=1`, as it stops the live gluetun). Screenshots are saved to `tests/e2e/screenshots/` for visual review.
 
 ### Tagging and Publishing
 
@@ -280,12 +305,15 @@ scripts/
     ├── check-env-vars.sh       # Ensure compose vars are documented
     ├── check-yaml-syntax.sh    # Validate YAML syntax
     ├── check-conflicts.sh      # Detect port/IP conflicts
+    ├── compose-conflicts.py    # The clash logic check-conflicts.sh runs on the rendered compose model
     ├── check-hardcoded-domain.sh  # Detect domain/hostname in tracked files
     ├── check-env-backup.sh     # Compare .env.nas.backup with NAS
     ├── check-uptime-monitors.sh   # Verify Uptime Kuma monitors
     ├── check-dns-duplicates.sh # Detect duplicate .lan domains
     ├── check-domains.sh        # Verify domain accessibility
-    └── check-image-versions.sh # Check for stale Docker image tags
+    ├── check-image-versions.sh # Check for stale Docker image tags
+    ├── configure-helpers.sh    # HTTP layer + output helpers for configure-apps.sh
+    └── bazarr-language-plan.py # Decides Bazarr's subtitle-profile changes (pure; unit-tested)
 ```
 
 The `common.sh` library provides shared functions used by all checks:

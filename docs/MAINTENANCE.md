@@ -12,7 +12,7 @@ This stack uses multiple compose files. Here are common commands for each scenar
 # Start / recreate
 docker compose -f docker-compose.arr-stack.yml up -d
 
-# Stop (without removing — safe, keeps Pi-hole running)
+# Stop without removing (Pi-hole stops too: LAN DNS is down until you start it again)
 docker compose -f docker-compose.arr-stack.yml stop
 
 # View logs
@@ -34,9 +34,12 @@ docker compose -f docker-compose.arr-stack.yml -f docker-compose.traefik.yml pul
 
 ### Core + Traefik + Cloudflared (remote access)
 
+Cloudflared has its own project name (`cloudflared`), so give it its own command. Adding its file to the one above would make the *last* file's name win, and run the whole stack as project `cloudflared`.
+
 ```bash
 # Start all three
-docker compose -f docker-compose.arr-stack.yml -f docker-compose.traefik.yml -f docker-compose.cloudflared.yml up -d
+docker compose -f docker-compose.arr-stack.yml -f docker-compose.traefik.yml up -d
+docker compose -f docker-compose.cloudflared.yml up -d
 ```
 
 ### Utilities (independent)
@@ -57,24 +60,26 @@ docker compose -f docker-compose.tailscale.yml pull
 
 ### All Stacks
 
+The three `arr-stack` files go together; Cloudflared and Tailscale are separate projects and get their own commands.
+
 ```bash
 # Start everything
 docker compose \
   -f docker-compose.arr-stack.yml \
   -f docker-compose.traefik.yml \
-  -f docker-compose.cloudflared.yml \
-  -f docker-compose.tailscale.yml \
   -f docker-compose.utilities.yml \
   up -d
+docker compose -f docker-compose.cloudflared.yml up -d
+docker compose -f docker-compose.tailscale.yml up -d
 
 # Pull all images
 docker compose \
   -f docker-compose.arr-stack.yml \
   -f docker-compose.traefik.yml \
-  -f docker-compose.cloudflared.yml \
-  -f docker-compose.tailscale.yml \
   -f docker-compose.utilities.yml \
   pull
+docker compose -f docker-compose.cloudflared.yml pull
+docker compose -f docker-compose.tailscale.yml pull
 ```
 
 > **Never use `docker compose down`** on the arr-stack file — it removes the Pi-hole container and you lose DNS (and internet) before you can bring it back up. Use `stop` instead, or just `up -d` to recreate.
@@ -94,7 +99,7 @@ docker exec gluetun wget -qO- https://ipinfo.io/ip     # Should show VPN IP
 docker exec qbittorrent wget -qO- https://ipinfo.io/ip  # Should match Gluetun's IP
 ```
 
-The `check-vpn.sh` script compares Gluetun's exit IP against your NAS LAN IP and exits non-zero if they match (leak detected). You can add it to cron for periodic monitoring:
+The `check-vpn.sh` script checks DNS, compares Gluetun's exit IP with the host's own egress (measured from Sonarr, which is off the VPN), and checks that each tunnelled service (qBittorrent, Prowlarr, SABnzbd, FlareSolverr) exits through Gluetun. It exits non-zero on a leak, a DNS failure, or a service it can't measure. You can add it to cron for periodic monitoring:
 
 ```bash
 # Check every 5 minutes, log failures
@@ -154,9 +159,95 @@ Add to NAS crontab (`crontab -e`):
 
 Items with **any** download progress are never removed, even if slow.
 
+**Left alone: downloads waiting for a manual import because Sonarr or Radarr matched them by ID.** An ID search lets the indexer say which show or film a release is, so Sonarr grabs releases whose names it can't recognise (a Netflix release of a Korean show under its romanised title, say). When one finishes, Sonarr won't import it on its own, by design, in case the indexer was wrong, and sends a "Needs manual import" notice. The file is usually fine, so the sweep doesn't blocklist it. It names each one in the weekly notice instead, as a `warning`, until you import it (Activity → Queue → the person icon). A grab made from Interactive Search imports normally.
+
 Removed releases are blocklisted so the same broken release won't be grabbed again. A fresh search is triggered for each affected series/movie to find better-seeded alternatives.
 
 ---
+
+## Stuck Requests
+
+A request can sit undownloaded for weeks while every step reports success. Three naming authorities are involved and nothing checks that a request turned into monitored, findable episodes: Seerr follows TMDB, Sonarr follows TVDB, and release groups name files however they like. The case that prompted this check is in [TROUBLESHOOTING.md](TROUBLESHOOTING.md#seerr-request-stuck-for-weeks-while-the-release-exists-three-naming-authorities). The commonest cause is duller still: Sonarr and Radarr only ever grab from their RSS sync and never search the backlog, so a release that RSS missed (an indexer in backoff that hour, a post outside the window) is never found until somebody clicks Search. Two films sat 130 and 171 days that way with approved releases on NZBgeek the whole time. The opposite failure looks like success to every step: three shows share the plain title *Queer as Folk*, NZBgeek's untagged `Queer.as.Folk.S01Exx` names belong to the US run and the 2022 reboot, and Sonarr files an untagged name under whichever library series carries the title, so the UK series' season 1 was "imported" as the reboot's first episode and the US run's episodes 2 to 8. Seerr and Jellyfin called it done; only the runtimes (44 to 55 minutes against TVDB's 32 to 36) said otherwise.
+
+`scripts/check-stuck-requests.sh` reads Seerr's requests, asks Sonarr and Radarr what became of each one, runs their own release search for anything never grabbed, compares every imported episode file's length with TVDB's runtime for its episode, and posts one `info` notice to the Home Assistant panel (tag `stuck-requests`, so each day's notice replaces the last). With `--apply` it also queues the search RSS missed, which is the fix for that case. It posts nothing when nothing is stuck.
+
+```bash
+./scripts/check-stuck-requests.sh                 # dry run: report only
+./scripts/check-stuck-requests.sh --post          # post the notice if anything is stuck
+./scripts/check-stuck-requests.sh --apply         # queue a search for what RSS missed
+./scripts/check-stuck-requests.sh --post --apply -v
+./scripts/check-stuck-requests.sh --test          # post a test notice, to prove the webhook
+```
+
+### What it reports
+
+Each line names the title, who requested it, how long ago, and what to do:
+
+- **Seerr never handed it over**, or marked the request *Failed* (the hand-off did not go through). Retry it from Seerr → Requests.
+- **Sonarr monitored nothing.** Seerr asked for season numbers the TVDB record doesn't have (Seerr sent "season 10"; TVDB numbers that show's seasons 1964 … 2026), or every requested season is unmonitored. Re-request from the TVDB-linked entry, or monitor the season in Sonarr.
+- **Never grabbed.** A monitored, available movie in Radarr for `MOVIE_STUCK_DAYS` (default 7) or more days with no file and no history, or episodes that aired `STUCK_DAYS` (default 3) or more days ago with no file and no grab in Sonarr's history. Each gets the app's own release search (what Interactive Search shows), and the line says which of these it is, in order:
+  1. **A release it would take exists.** RSS missed it; nobody ever searched. `--apply` queues `MoviesSearch` or `EpisodeSearch`, and the line says so; if the item is still there tomorrow, the download failed.
+  2. **Releases exist but every one is rejected.** The rejection reasons are quoted: fix the quality profile or custom formats, or decline.
+  3. **Nothing, while Prowlarr has an indexer in failure backoff.** The zero is not trusted; try again later.
+  4. **Nothing.** A Prowlarr search by title sorts what is left: only `S01E01`-style releases means a TV broadcast with a TMDB *movie* entry, which Radarr can never match (delete it and request the series); for Sonarr, releases for the missing seasons under the title means the episode numbering differs from TVDB's (if they are this show and not a same-named one); none at all means no enabled indexer carries it, or names it differently, as "70 Up" for *The Up Series*.
+
+  A film still in cinemas with no home release date yet, or whose home release is still to come, is waiting correctly and is not reported.
+- **A monitored Sonarr series with no monitored season**, whether or not a request points at it (catches manual adds).
+- **An imported file that cannot be its episode.** Its length is `RUNTIME_TOLERANCE` percent (default 40) or more off TVDB's runtime for the episode, and another series in the Sonarr library shares the plain title (the title with a trailing bracketed country or year removed), which is how the wrong show gets filed there. One line per series names each file with its scene name and both runtimes ("S01E01 runs 55:01 against TVDB's 32 min"): delete the files in Sonarr and search again, and check the season's other files, since a smaller difference hides the same mistake (five of the eight Queer as Folk files were 29 to 39 percent long). Without a same-named series the mismatch is shown under `-v` only, because TVDB's slot lengths (60 minutes for a 44-minute drama) and extended episodes are off by that much on their own. Multi-episode files, files Sonarr has no media info for, and episodes TVDB gives no runtime are not compared.
+
+Thresholds come from the environment: `STUCK_DAYS=5 MOVIE_STUCK_DAYS=14 MAX_SEARCHES=20 SEARCH_PAUSE=3 RUNTIME_TOLERANCE=40 ./scripts/check-stuck-requests.sh`. Every release search hits the indexers for real, so they run `SEARCH_PAUSE` seconds apart and stop at `MAX_SEARCHES` a run: a burst of fifteen put NZBgeek and EZTV into Prowlarr's five-minute backoff, and every search in that window returned a zero that read as "nobody carries it". Without Prowlarr a zero can't be checked against backoff and the line says so. A film that isn't out yet, and an episode that was grabbed but failed to download, are left to Radarr, Sonarr and the [queue cleanup](#queue-cleanup).
+
+### Automated (cron)
+
+Daily is the point: a request that goes quiet shows up in the panel the day it passes the threshold, not five weeks later. On UGOS the admin user cannot write its own crontab, so install it the same way as the [audiobook mirror](#audiobooks-on-the-tv):
+
+```bash
+crontab -l > /tmp/cron.new
+echo '30 8 * * * $NAS_STACK_DIR/scripts/check-stuck-requests.sh --post --apply >> $NAS_STACK_DIR/logs/check-stuck-requests.log 2>&1' >> /tmp/cron.new
+sudo crontab -u <user> /tmp/cron.new
+```
+
+Prove the webhook once with `--test` and look at the Home Assistant panel: HA answers 200 to any webhook id, so the script's "posted" line only proves the POST arrived. A notice stays in the panel after you fix the requests, until you dismiss it, because nothing is posted on a clean day.
+
+---
+
+## Executable Scan
+
+Public torrent indexers sometimes serve a Windows executable padded to episode size and named after a real release group. qBittorrent rejects the usual extensions up front and Sonarr/Radarr refuse to import a release containing one — but a refused import leaves the payload in `/data/torrents`, inert on the NAS and one SMB browse away from a machine where it isn't. This reports anything already on disk:
+
+```bash
+./scripts/scan-executables.sh          # lists findings, exit 1 if any
+./scripts/scan-executables.sh --quiet  # findings only, for cron
+```
+
+Weekly is plenty. Pair it with an Uptime Kuma push monitor the same way as the VPN check, or just log it:
+
+```bash
+0 4 * * 0 $NAS_STACK_DIR/scripts/scan-executables.sh --quiet >> $NAS_STACK_DIR/logs/scan-executables.log 2>&1
+```
+
+Anything it finds: verify, delete, then blocklist the release in Sonarr/Radarr (Activity → Queue → remove with **Blocklist** ticked) so the same grab isn't repeated. The e2e suite asserts the same steady state in `tests/e2e/media-hygiene.spec.ts`.
+
+## Audiobooks on the TV
+
+Jellyfin classifies a `.m4b` as an AudioBook, and the Android TV app cannot play AudioBook items — only the web client can. `scripts/audiobooks-tv-mirror.sh` hardlinks every `.m4b` in the audiobook folders (including the two `other` download lanes) as a `.m4a` under `/data/media/audiobooks-tv/`, where a *Music*-type Jellyfin library sees a plain audio track the TV plays. Same bytes, no extra space, originals untouched. It prunes a link whose source is gone.
+
+```bash
+./scripts/audiobooks-tv-mirror.sh --dry-run   # what it would link or prune
+./scripts/audiobooks-tv-mirror.sh
+```
+
+On UGOS the admin user cannot write its own crontab (`crontab -` fails with `mkstemp: Permission denied`, and writing the spool file by hand is silently ignored — see [UTILITIES.md](UTILITIES.md#the-vpn-check-and-why-it-is-a-push-monitor)). Install it via root:
+
+```bash
+crontab -l > /tmp/cron.new
+echo '*/15 * * * * $NAS_STACK_DIR/scripts/audiobooks-tv-mirror.sh >> $NAS_STACK_DIR/logs/audiobooks-tv-mirror.log 2>&1' >> /tmp/cron.new
+sudo crontab -u <user> /tmp/cron.new
+```
+
+Trust it only once `logs/audiobooks-tv-mirror.log` shows a run.
+
+The Jellyfin side is one library: Dashboard → Libraries → add a *Music* library named e.g. "Audiobooks (TV)" over `/data/media/audiobooks-tv` — see [APP-CONFIG.md § 4.1](APP-CONFIG.md#41-jellyfin-media-server). Chapter navigation exists only in the web's Books library; the TV gets resume.
 
 ## Health Checks
 
@@ -178,7 +269,8 @@ Services showing `(unhealthy)` may need attention. Common causes:
 Check for available updates:
 
 ```bash
-# If using Diun (from utilities stack), it sends notifications automatically
+# New versions arrive as tag bumps in this repo (Renovate opens a PR for each):
+# git pull, then pull and recreate what changed
 
 # Manual check
 docker compose -f docker-compose.arr-stack.yml pull

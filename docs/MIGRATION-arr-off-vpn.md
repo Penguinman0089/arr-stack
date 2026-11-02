@@ -6,7 +6,7 @@
 
 # Migration: move Sonarr + Radarr off the VPN
 
-**Branch:** `feat/arr-off-vpn` · **Status:** spec for review — do NOT merge or deploy until reviewed.
+**Branch:** `feat/arr-off-vpn` · **Status:** shipped in v1.7.23. Kept as the record of the change and the runbook for a deploy that predates it.
 
 ## Why
 
@@ -117,11 +117,11 @@ UI — they are a handful of fields. Do the UI route unless you want to script a
 
 1. `docker ps` — sonarr/radarr **healthy**, on `arr-stack` (`docker inspect sonarr --format '{{json .NetworkSettings.Networks}}'` shows `172.20.0.10`, no `service:gluetun`).
 2. Sonarr/Radarr **Settings ▸ Download Clients ▸ Test** → green (reaching `gluetun:8085`/`8080`).
-3. Prowlarr **Settings ▸ Apps ▸ Test** both → green (reaching `sonarr`/`radarr`).
+3. Prowlarr **Settings ▸ Apps ▸ Test** both → green (reaching `172.20.0.10`/`172.20.0.11`).
 4. Bazarr + Seerr → Sonarr/Radarr connections test green.
 5. Seerr: no `Unable to get queue` errors for 10 min (`docker logs seerr --since 10m | grep -i "download tracker"` → empty).
 6. End-to-end: request a test title in Seerr → it reaches Radarr → grabs → qBit downloads → imports.
-7. `npm run test:e2e` — all 14 pass (run in background).
+7. `npm run test:e2e` — every test passes (run in background).
 8. **VPN-still-protects check:** `docker exec qbittorrent curl -s ifconfig.me` returns the **VPN** IP, not home. `docker exec prowlarr curl -s ifconfig.me` returns the **VPN** IP. (Sonarr/Radarr will now show the home IP — expected.)
 
 ## Rollback

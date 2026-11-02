@@ -2,7 +2,7 @@
 
 > Return to [Setup Guide](SETUP.md) · [Manual setup instead?](APP-CONFIG.md)
 
-The [configure-apps.sh](../scripts/configure-apps.sh) script automates ~22 configuration steps across qBittorrent, Sonarr, Radarr, Prowlarr, and Bazarr — root folders, download clients, naming schemes, NFO metadata, custom formats, delay profiles, subtitle sync, and more.
+The [configure-apps.sh](../scripts/configure-apps.sh) script automates ~30 configuration steps across qBittorrent, SABnzbd, Sonarr, Radarr, Prowlarr, Bazarr, Seerr and Pi-hole — root folders, download clients, naming schemes, NFO metadata, custom formats, delay profiles, subtitle sync and languages, qBittorrent's executable exclusion list, Seerr's TVDB metadata provider, and more. `--dry-run` shows exactly what would change on your stack.
 
 > **Note:** This script is LLM-generated and human-reviewed. Best not to blindly run scripts from the internet — review [configure-apps.sh](../scripts/configure-apps.sh) for security before running it.
 
@@ -34,6 +34,7 @@ Create admin account when prompted.
 
 **Bazarr** — `http://NAS_IP:6767`
 Create admin account when prompted.
+Nothing else to do here. The script manages a subtitle profile named **English** — adopting an existing one whose languages are exactly English whatever it's called, or creating it — makes it the series/movie default, and leaves any other profiles you have alone.
 
 ## Step 2: Run the script
 
@@ -54,21 +55,30 @@ Preview what it will do without making changes:
 ./scripts/configure-apps.sh --dry-run
 ```
 
+Useful flags and knobs (the full list is in the script's header, `./scripts/configure-apps.sh --help`):
+
+- `--only <section>` — run one section (`qbittorrent`, `sabnzbd`, `sonarr`, `radarr`, `prowlarr`, `bazarr`, `seerr`, `pihole`) and touch nothing else.
+- `SUBTITLE_LANGUAGES="en fr"` — what the managed Bazarr profile contains (default `en`). The script owns that one profile's contents; your other profiles are never touched.
+- `API_TIMEOUT` (default 60 s) bounds every request; `BAZARR_SCAN_TIMEOUT` (default 600 s) bounds the one Bazarr write that rescans the whole library.
+
 > **Safe to re-run:** The script is fully idempotent — it checks each setting before applying it and skips anything already configured. You can run it as many times as needed without side effects (e.g., after a stack update or restore).
 
 **What the script configures:**
 
 | Service | Settings |
 |---------|----------|
-| qBittorrent | Categories (`tv`/`movies`), auto torrent management, encryption, UPnP off, stall timeout, concurrent limits |
+| qBittorrent | Categories (`tv`/`movies`/`other`), executable exclusions, auto torrent management, encryption, UPnP off, stall timeout, concurrent limits, binding to the VPN interface |
 | Sonarr | Root folder, qBittorrent + SABnzbd download clients, TRaSH naming, NFO metadata, custom formats (Reject ISO, Dolby Vision profile scoring), Usenet delay profile |
 | Radarr | Root folder, qBittorrent + SABnzbd download clients, TRaSH naming, NFO metadata, custom formats (Reject ISO, Dolby Vision profile scoring), Usenet delay profile |
-| Prowlarr | FlareSolverr proxy, Sonarr + Radarr app sync |
-| Bazarr | Sonarr + Radarr connections, subtitle sync (ffsubsync), Sub-Zero content mods, default English language |
+| Prowlarr | FlareSolverr proxy, Sonarr + Radarr app sync, qBittorrent + SABnzbd as its *own* download clients so the search page can grab (→ category `other`) |
+| SABnzbd | `other` category for Prowlarr search-page grabs (`/data/usenet/complete/other`) |
+| Bazarr | English subtitle profile (found, adopted or created) + series/movie defaults pointing at it, Sonarr + Radarr connections (after the profile, so the first library sync gets it), subtitle sync (ffsubsync), Sub-Zero content mods |
+| Seerr | TV and anime metadata from TVDB (only once its setup wizard has run, see Step 3) |
+| Pi-hole | Upstream DNS set to the stack's dnscrypt-proxy (`172.20.0.6#5053`) |
 
 ## Step 3: Configure the remaining services
 
-The script handles qBittorrent, Sonarr, Radarr, Prowlarr, and Bazarr. Complete these remaining services in order:
+The script handles qBittorrent, Sonarr, Radarr, Prowlarr, Bazarr and Pi-hole. Complete these remaining services in order:
 
 ### 1. Plex — Add libraries
 
@@ -96,13 +106,14 @@ Config (⚙️) → Folders → set **absolute paths**:
 2. Sign in with Plex: click **Sign In with Plex** and authorize at plex.tv
 3. Settings → Plex → set **External URL** to `http://plex.lan` (or `http://NAS_IP:32400`) — makes "Play on Plex" links work in your browser
 4. Settings → Services → Add Radarr:
-   - Hostname: `radarr`, Port: `7878`, Quality Profile: `UHD Bluray + WEB`
+   - Hostname: `radarr`, Port: `7878`, Quality Profile: your choice ([Configarr](UTILITIES.md#configarr-setup)'s is `UHD Bluray + WEB`; the built-in `Ultra-HD` is 4K-only)
    - External URL: `http://radarr.lan` (or `http://NAS_IP:7878`)
 5. Settings → Services → Add Sonarr:
-   - Hostname: `sonarr`, Port: `8989`, Quality Profile: `Ultra-HD`
+   - Hostname: `sonarr`, Port: `8989`, Quality Profile: your choice (Configarr's is `WEB-2160p`)
    - External URL: `http://sonarr.lan` (or `http://NAS_IP:8989`)
 6. Settings → Plex → toggle **Movies** and **TV** on → Save
 7. Click **Sync Libraries** then **Start Scan**
+8. Re-run `./scripts/configure-apps.sh --only seerr` — it can only reach Seerr once the wizard has run, and it sets series metadata to TVDB so the seasons Seerr offers are the ones Sonarr fetches ([why](APP-CONFIG.md#47-seerr-request-manager))
 
 > **Hostnames, not `gluetun`:** Sonarr and Radarr sit on the `arr-stack` bridge with their own Docker DNS names, so Seerr reaches them directly. `gluetun` only works for services genuinely inside the VPN namespace — qBittorrent and SABnzbd — and it refuses connections on 8989/7878.
 
@@ -112,11 +123,13 @@ Settings → Providers → add a provider (e.g., OpenSubtitles).
 
 > The script already configured Sonarr/Radarr connections and subtitle sync.
 
-### 6. Pi-hole — Set upstream DNS
+### 6. Pi-hole — Check it
+
+The script already pointed Pi-hole's upstream DNS at the stack's dnscrypt-proxy (`172.20.0.6#5053`), so there is nothing to set. To look:
 
 1. Open `http://NAS_IP:8081/admin`
 2. Login with the password from `PIHOLE_UI_PASS` in your `.env` (password only, no username)
-3. Settings → DNS → pick upstream servers (e.g., `1.1.1.1`, `8.8.8.8`)
+3. Settings → DNS should list `172.20.0.6#5053` as the only upstream
 
 ---
 

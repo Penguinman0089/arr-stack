@@ -25,12 +25,19 @@ name: tailscale
 
 services:
   tailscale:
-    image: tailscale/tailscale:v1.102.2
+    image: tailscale/tailscale:v1.104.4
     container_name: tailscale
     hostname: ${TS_HOSTNAME:-arr-stack-nas}
     # network_mode: host is required for subnet routing — the daemon needs
     # to see the host's LAN interface to advertise/route its subnet.
     network_mode: host
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # NET_ADMIN: create the tun device, routes and ip rules. NET_RAW: the
+    # image's iptables is the legacy build, which needs a raw socket to add
+    # the subnet-router/exit-node rules (without it they fail silently).
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -51,11 +58,9 @@ services:
       - TS_AUTHKEY=${TS_AUTHKEY:-}
       # Advertises your LAN subnet (LAN_SUBNET from .env) so tailnet peers can
       # reach the whole network. Add extra subnets with TS_EXTRA_ROUTES if needed.
-      # --advertise-exit-node offers the NAS as an exit node, letting a tailnet
-      # device route ALL its internet traffic through your home connection, not
-      # just LAN traffic. Advertising is inert until you approve it in the admin
-      # console (Machines -> your NAS -> Edit route settings -> tick 0.0.0.0/0
-      # and ::/0), so adding the flag changes nothing on its own.
+      # --advertise-exit-node lets a tailnet device send all its internet traffic
+      # out through this NAS, not just LAN traffic. It stays switched off until you
+      # approve it in the Tailscale admin console; see docs/TAILSCALE.md.
       - TS_EXTRA_ARGS=--advertise-routes=${LAN_SUBNET}${TS_EXTRA_ROUTES:+,${TS_EXTRA_ROUTES}} --accept-routes --advertise-exit-node
     healthcheck:
       test: ["CMD", "tailscale", "status", "--peers=false"]

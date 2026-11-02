@@ -1,125 +1,142 @@
 import { test, expect } from '@playwright/test';
-import {
-  DOCKER_TRANSPORT,
-  requireStackReachable,
-  TUNNELED_SERVICES,
-  BRIDGE_SERVICES,
-  egressIp,
-  dockerInspect,
-  dockerLifecycle,
-} from './helpers';
+import { isIP } from 'net';
+import { requireStackReachable, docker, dockerExec, runOnNas, GLUETUN_NAMESPACE_SERVICES } from './helpers';
 
-//
-// LICENCE: this file remains under CC BY-NC 4.0 (LICENSE-docs), NOT the
-// PolyForm Noncommercial licence covering the rest of this repo's code. It is
-// adapted from leonardoazeredo/ultimate-arr-stack and was contributed under
-// CC BY-NC 4.0; relicensing it needs that author's agreement, requested in
-// issue #20. See LICENSE.
-//
-// ORIGIN: adapted from leonardoazeredo/ultimate-arr-stack, a downstream fork of
-// this repo, published under this repo's CC BY-NC 4.0 notice. Changed here: the
-// off-NAS gate (helpers.ts STACK_IS_LOCAL) and the service lists.
-//
-// Replaces the old "VPN connectivity" test in stack.spec.ts, which reached
-// Sonarr's API and inferred the tunnel was healthy — on a premise that stopped
-// being true when Sonarr and Radarr moved off the VPN netns. These compare
-// actual egress IPs, which is the only thing that distinguishes "tunneled"
-// from "leaking".
-//
-// They drive `docker exec` against whichever daemon owns the stack — this
-// machine's if the containers are here, otherwise the NAS's over SSH (see
-// helpers.ts DOCKER_TRANSPORT). They used to require the containers to be
-// local, which meant they skipped on every dev machine while the suite still
-// exited 0 — a green run that had checked nothing about the VPN.
-//
-// This is the automated counterpart to scripts/check-vpn.sh; the two implement
-// the same comparison and should be kept in step.
+// Compares real egress IPs, measured from inside each container. Nothing
+// weaker will do: a service's UI answering says nothing about which way its
+// traffic leaves, and a check that reached Sonarr's API passed identically
+// whether the VPN worked or leaked (see api-assertions.spec.ts).
 
-test.describe('VPN egress — leak detection', () => {
-  test.beforeAll(() => {
-    // Surface the transport once, so a run that reaches the NAS over SSH is
-    // visibly different from one that quietly checked nothing.
-    console.log(`  [vpn-security] docker transport: ${DOCKER_TRANSPORT}`);
-  });
+// Prints the public IP the caller exits from, or NOEGRESS. Cloudflare's trace
+// is fetched by IP literal first, so a Pi-hole wobble (gluetun's only DNS)
+// cannot pass for a dead tunnel, and a dead tunnel cannot hide behind a DNS
+// failure. curl where the image has it, else wget: gluetun ships only
+// busybox wget. IPv4-only endpoints, so every measurement compares like with
+// like.
+const EGRESS_SCRIPT = [
+  'get() { if command -v curl >/dev/null 2>&1; then curl -fsS -m 8 "$1"; else wget -qO- -T 8 "$1"; fi; }',
+  'for u in https://1.1.1.1/cdn-cgi/trace https://1.0.0.1/cdn-cgi/trace; do',
+  '  ip=$(get "$u" 2>/dev/null | sed -n "s/^ip=//p")',
+  '  [ -n "$ip" ] && { echo "$ip"; exit 0; }',
+  'done',
+  'ip=$(get https://api.ipify.org 2>/dev/null)',
+  '[ -n "$ip" ] && { echo "$ip"; exit 0; }',
+  'echo NOEGRESS',
+].join('\n');
 
-  test.beforeEach(() => {
+function parseEgress(output: string, where: string): string | null {
+  const out = output.trim();
+  if (out === 'NOEGRESS') return null;
+  if (isIP(out)) return out;
+  throw new Error(`egress probe in ${where} printed neither an IP nor NOEGRESS: ${out.slice(0, 200)}`);
+}
+
+// null means the container has no route out at all.
+function egressOf(container: string): string | null {
+  return parseEgress(dockerExec(container, ['sh', '-c', EGRESS_SCRIPT], 45_000), container);
+}
+
+// The NAS's own connection, measured on the host rather than from a container.
+function nasEgress(): string | null {
+  return parseEgress(runOnNas(['sh', '-c', EGRESS_SCRIPT], 45_000), 'the NAS host');
+}
+
+let gluetunIp: string | undefined;
+function vpnExit(): string {
+  if (!gluetunIp) {
+    const ip = egressOf('gluetun');
+    expect(ip, 'gluetun has no egress at all; the tunnel is down').not.toBeNull();
+    gluetunIp = ip!;
+  }
+  return gluetunIp;
+}
+
+test.describe('VPN security', () => {
+  // If gluetun exits from the NAS's own address, the "tunnel" is not
+  // tunnelling, and every comparison below would pass on a leak.
+  test("gluetun exits somewhere other than the NAS's own connection", () => {
     requireStackReachable(test.skip);
+    const nas = nasEgress();
+    expect(nas, 'the NAS host has no egress, so there is nothing to compare the VPN with').not.toBeNull();
+    expect(vpnExit(), "gluetun's exit IP is the NAS's own: traffic is not going through the VPN").not.toBe(nas);
   });
 
-  test("Gluetun's exit IP differs from the NAS's own WAN IP", () => {
-    const gluetunIp = egressIp('gluetun');
-    // sonarr is bridge-only, so its egress IS the host's WAN egress.
-    const hostIp = egressIp('sonarr');
-    expect(gluetunIp).toBeTruthy();
-    expect(hostIp).toBeTruthy();
-    expect(gluetunIp).not.toBe(hostIp);
-  });
-
-  for (const service of TUNNELED_SERVICES) {
-    test(`${service} egresses through Gluetun, not around it`, () => {
-      // Must MATCH Gluetun exactly. "Differs from the NAS IP" would be too
-      // weak a test: a service leaking via some third route also differs from
-      // the NAS IP while not being tunneled at all.
-      const gluetunIp = egressIp('gluetun');
-      const serviceIp = egressIp(service);
-      expect(gluetunIp).toBeTruthy();
-      expect(serviceIp).toBeTruthy();
-      expect(serviceIp).toBe(gluetunIp);
+  // Each of these must exit through the tunnel. One that exits anywhere else
+  // has left gluetun's namespace (or was never in it) and is leaking; one
+  // with no egress at all is on a dead namespace (resilience.spec.ts).
+  for (const service of GLUETUN_NAMESPACE_SERVICES) {
+    test(`${service} exits through gluetun`, () => {
+      requireStackReachable(test.skip);
+      const exit = vpnExit();
+      const ip = egressOf(service);
+      expect(ip, `${service} has no egress; it may be on a gluetun namespace that no longer exists`).not.toBeNull();
+      expect(ip, `${service} leaks: it exits from ${ip}, not gluetun's ${exit}`).toBe(exit);
     });
   }
 
-  for (const service of BRIDGE_SERVICES) {
-    test(`${service} stays OFF the VPN (post-migration regression guard)`, () => {
-      // Codifies docs/MIGRATION-arr-off-vpn.md as a permanent check. If one of
-      // these ever starts matching Gluetun's IP, something re-tunneled it —
-      // probably by adding network_mode: "service:gluetun" back — without
-      // updating the migration doc or this test.
-      const gluetunIp = egressIp('gluetun');
-      const serviceIp = egressIp(service);
-      expect(gluetunIp).toBeTruthy();
-      expect(serviceIp).toBeTruthy();
-      expect(serviceIp).not.toBe(gluetunIp);
+  // Sonarr and Radarr moved to the bridge (docs/MIGRATION-arr-off-vpn.md) so a
+  // VPN reconnect no longer cuts them off from Seerr and Bazarr. Exiting via
+  // the VPN means that move was undone, and they are back to breaking on
+  // every reconnect.
+  for (const service of ['sonarr', 'radarr']) {
+    test(`${service} is off the VPN`, () => {
+      requireStackReachable(test.skip);
+      const exit = vpnExit();
+      const ip = egressOf(service);
+      expect(ip, `${service} has no egress at all`).not.toBeNull();
+      expect(ip, `${service} exits through gluetun; it belongs on the arr-stack bridge`).not.toBe(exit);
     });
   }
-});
 
-test.describe('VPN killswitch', () => {
-  test('stopping Gluetun blocks qBittorrent egress rather than leaking via a fallback route', async () => {
-    requireStackReachable(test.skip);
+  // The killswitch: with gluetun stopped, qBittorrent must lose its route out,
+  // not fall back to the NAS's connection. Stops the live gluetun, which cuts
+  // every download, so it runs only on request. Afterwards gluetun is started
+  // again and its dependents restarted onto its new namespace, as
+  // docs/TROUBLESHOOTING.md prescribes after a gluetun restart.
+  test('killswitch — qBittorrent has no egress while gluetun is stopped', async () => {
     test.skip(
       process.env.ALLOW_DISRUPTIVE_TESTS !== '1',
-      'set ALLOW_DISRUPTIVE_TESTS=1 to run — it stops the live Gluetun container, interrupting real downloads and searches',
+      'stops the live gluetun and interrupts downloads; set ALLOW_DISRUPTIVE_TESTS=1 to run it',
     );
-    test.setTimeout(120_000);
+    requireStackReachable(test.skip);
+    test.setTimeout(8 * 60_000);
 
-    const hostIp = egressIp('sonarr');
-    expect(hostIp).toBeTruthy();
+    const nas = nasEgress();
+    vpnExit();
 
+    docker(['stop', 'gluetun'], 90_000);
     try {
-      dockerLifecycle('stop', 'gluetun');
-
-      // A working killswitch means the request FAILS outright. Getting hostIp
-      // back here would mean traffic fell through to the NAS's own route —
-      // which is precisely the leak this guards against.
-      expect(egressIp('qbittorrent')).toBeNull();
-    } finally {
-      dockerLifecycle('start', 'gluetun');
-
-      // Always leave the stack working, even if the assertion above failed.
-      const deadline = Date.now() + 90_000;
-      let healthy = false;
-      while (Date.now() < deadline) {
-        try {
-          if (dockerInspect('gluetun', '{{.State.Health.Status}}') === 'healthy') {
-            healthy = true;
-            break;
-          }
-        } catch {
-          // keep polling
-        }
-        await new Promise((r) => setTimeout(r, 2_000));
+      let leaked: string | null;
+      try {
+        leaked = egressOf('qbittorrent');
+      } catch (err) {
+        // Only a stopped qBittorrent explains a failed exec; anything else
+        // leaves the question unanswered, and that is not a pass.
+        const running = docker(['inspect', '--format', '{{.State.Running}}', 'qbittorrent']).trim();
+        if (running === 'true') throw err;
+        leaked = null;
       }
-      expect(healthy).toBeTruthy();
+      expect(
+        leaked,
+        leaked === nas
+          ? "qBittorrent fell back to the NAS's own connection with gluetun stopped"
+          : `qBittorrent still reached the internet (as ${leaked}) with gluetun stopped`,
+      ).toBeNull();
+    } finally {
+      docker(['start', 'gluetun'], 90_000);
+      const deadline = Date.now() + 4 * 60_000;
+      let health = '';
+      while (Date.now() < deadline) {
+        health = docker(['inspect', '--format', '{{.State.Health.Status}}', 'gluetun']).trim();
+        if (health === 'healthy') break;
+        await new Promise((r) => setTimeout(r, 5_000));
+      }
+      expect(health, 'gluetun did not come back healthy after the killswitch test; check the stack now').toBe('healthy');
+      // The dependents are still on the namespace gluetun had before it stopped.
+      docker(['restart', ...GLUETUN_NAMESPACE_SERVICES], 3 * 60_000);
     }
+
+    gluetunIp = undefined; // a reconnect can land on a different server
+    expect(egressOf('qbittorrent'), 'qBittorrent did not recover its VPN egress after gluetun restarted').toBe(vpnExit());
   });
 });

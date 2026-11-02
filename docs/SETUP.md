@@ -107,8 +107,9 @@ Decide how you'll access your media stack:
 **Files you DON'T edit:**
 - `docker-compose.*.yml` - Work as-is, configured via `.env`
 - `pihole/dnsmasq.d/02-local-dns.conf` - Generated from example via sed command
+- `dnscrypt-proxy/dnscrypt-proxy.toml` - dnscrypt-proxy's config: the image default plus a denylist of DNS64 resolvers
 - `traefik/dynamic/tls.yml` - Security defaults
-- `traefik/dynamic/local-services.yml` - Auto-generates from `.env`
+- `traefik/dynamic/local-services.yml` - Ready-made `.lan` routes to the fixed container IPs (reads nothing from `.env`)
 
 ### Docker Compose Files
 
@@ -216,6 +217,8 @@ sudo chown -R 1000:1000 "$NAS_STACK_DIR"
 ```
 
 **Note:** Service configs are stored in Docker named volumes (auto-created on first run). Docker commands on Ugreen NAS need `sudo` by default — to skip that, add your user to the `docker` group once: `sudo usermod -aG docker $USER`, then log out of SSH and back in. After that, plain `docker` and `docker compose` work without `sudo`.
+
+**Turn off UGOS's Docker auto-update.** In the **Docker** app → **Management** → **Image update**, untick **Update detection** and click **Apply**. When it's on, UGOS updates containers itself every week. It can't rebuild a container that shares gluetun's network, so it deletes Prowlarr, qBittorrent or SABnzbd and fails to create the replacement. This stack pins its image versions in the compose files; update through the repo instead. Details: [TROUBLESHOOTING.md](TROUBLESHOOTING.md#indexers-all-unavailable-every-monday-morning-ugos-docker-auto-update).
 
 <details>
 <summary><strong>Note on UGOS Antivirus</strong></summary>
@@ -562,7 +565,7 @@ Service configs are stored in Docker named volumes. Run periodic backups:
 ./scripts/arr-backup.sh --tar
 ```
 
-Creates a ~13MB tarball of essential configs (VPN settings, indexers, request history, etc.).
+Creates a tarball of essential configs (VPN settings, indexers, request history, etc.) and consistent Sonarr and Radarr database backups. Plex configuration and watch history still require a separate manual backup; the script does not interrupt Plex playback.
 
 See **[Backup & Restore](BACKUP.md)** for full details on what's backed up, restore procedures, and automation.
 
@@ -578,58 +581,19 @@ Deploy monitoring, auto-recovery, and disk usage tools.
 
 ## Adding More Services (Core)
 
-Other *arr apps you can add to your Core stack:
+This fork already includes these services, their pinned config volumes, DNS examples and Traefik routes:
 
-- **Lidarr** - Music (port 8686)
-- **Readarr** - Ebooks (port 8787)
+| Service | Purpose | Host Port | Bridge IP |
+|---------|---------|-----------|-----------|
+| Lidarr | Music | 8686 | 172.20.0.7 |
+| Readarr | Ebooks | 8787 | 172.20.0.22 |
+| Audiobookshelf | Audiobooks and podcasts | 13378 | 172.20.0.23 |
 
-<details>
-<summary>Example: Adding Lidarr</summary>
+Do not add duplicate service definitions or publish their ports through Gluetun. They use their own bridge addresses, like Sonarr and Radarr.
 
-1. Add to `docker-compose.arr-stack.yml` volumes section:
-   ```yaml
-   lidarr-config:
-   ```
-
-2. Add port to gluetun:
-   ```yaml
-   - "8686:8686"   # Lidarr
-   ```
-
-3. Add the service:
-   ```yaml
-   lidarr:
-     image: lscr.io/linuxserver/lidarr:latest
-     container_name: lidarr
-     network_mode: "service:gluetun"
-     depends_on:
-       gluetun:
-         condition: service_healthy
-     environment:
-       - PUID=${PUID}
-       - PGID=${PGID}
-       - TZ=${TZ}
-     volumes:
-       - lidarr-config:/config
-       - ${MEDIA_ROOT}:/data
-     restart: unless-stopped
-   ```
-
-4. Redeploy: `docker compose -f docker-compose.arr-stack.yml up -d`
-
-5. **(+ local DNS)** Add `.lan` domain:
-   ```bash
-   # Add to pihole/dnsmasq.d/02-local-dns.conf
-   echo "address=/lidarr.lan/TRAEFIK_LAN_IP" >> pihole/dnsmasq.d/02-local-dns.conf
-
-   # Add Traefik route to traefik/dynamic/local-services.yml
-   # (router + service, see existing entries as template)
-
-   # Restart Pi-hole to pick up bind-mount changes (reloaddns alone is NOT enough)
-   docker restart pihole
-   ```
-
-</details>
+```bash
+docker compose -f docker-compose.arr-stack.yml up -d lidarr readarr audiobookshelf
+```
 
 ---
 

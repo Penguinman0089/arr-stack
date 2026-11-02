@@ -15,17 +15,15 @@ while [[ -L "$SCRIPT_PATH" ]]; do
     [[ "$SCRIPT_PATH" != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
 done
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo "$SCRIPT_DIR/..")"
 
 # Color output (disabled if not interactive)
 if [[ -t 1 ]]; then
     RED='\033[0;31m'
     GREEN='\033[0;32m'
-    YELLOW='\033[1;33m'
     BLUE='\033[0;34m'
     NC='\033[0m'
 else
-    RED='' GREEN='' YELLOW='' BLUE='' NC=''
+    RED='' GREEN='' BLUE='' NC=''
 fi
 
 # Source common library first (caches NAS config for all checks)
@@ -44,9 +42,10 @@ source "$SCRIPT_DIR/lib/check-domains.sh"
 source "$SCRIPT_DIR/lib/check-image-versions.sh"
 source "$SCRIPT_DIR/lib/check-doc-links.sh"
 
-# Track results
+# Track results. Count with ERRORS=$((ERRORS + 1)), never ((ERRORS++)): the
+# latter evaluates to 0 on the first error, and under set -e bash >= 4.1 exits
+# right there, skipping every later check and the summary.
 ERRORS=0
-WARNINGS=0
 
 echo ""
 echo -e "${BLUE}Pre-commit validation${NC}"
@@ -68,7 +67,7 @@ echo -e "${BLUE}1. Checking for secrets...${NC}"
 if check_secrets; then
     echo -e "    ${GREEN}OK${NC}: No secrets detected"
 else
-    ((ERRORS++))
+    ERRORS=$((ERRORS + 1))
 fi
 echo ""
 
@@ -79,11 +78,10 @@ echo -e "${BLUE}2. Checking environment variable documentation...${NC}"
 if check_env_vars; then
     echo -e "    ${GREEN}OK${NC}: All compose variables documented"
 else
-    # check_env_vars outputs its own errors. This MUST be an else branch: a
-    # `[[ $? -ne 0 ]]` after the `fi` reads the exit status of the *if
-    # statement*, which is 0 whenever the condition was false and there is no
-    # else — so the check never once blocked a commit.
-    ((ERRORS++))
+    # check_env_vars has already printed what is missing. Count it here: after
+    # `fi`, $? belongs to the if statement as a whole, which is 0 when a false
+    # condition had no else to run, so a count made there never blocks.
+    ERRORS=$((ERRORS + 1))
 fi
 echo ""
 
@@ -95,7 +93,7 @@ echo -e "${BLUE}3. Checking YAML syntax...${NC}"
 # used and whether it in fact validated anything. A blanket "OK" here used to
 # be printed even when the check had silently done nothing at all.
 if ! check_yaml_syntax; then
-    ((ERRORS++))
+    ERRORS=$((ERRORS + 1))
 fi
 echo ""
 
@@ -103,18 +101,23 @@ echo ""
 # CHECK 4: Port/IP Conflicts (BLOCKS)
 # ==========================================
 echo -e "${BLUE}4. Checking for port/IP conflicts...${NC}"
-if check_conflicts; then
-    echo -e "    ${GREEN}OK${NC}: No conflicts detected"
-else
-    ((ERRORS++))
+# check_conflicts prints its own status line: how many ports and IPs it
+# checked, or SKIPPED when docker compose or python3 is missing. A blanket
+# "OK" here would cover a skip.
+if ! check_conflicts; then
+    ERRORS=$((ERRORS + 1))
 fi
 echo ""
 
 # ==========================================
-# CHECK 5: Hardcoded Domain (WARNS)
+# CHECK 5: Hardcoded Domain (WARNS; the NAS hostname BLOCKS)
 # ==========================================
 echo -e "${BLUE}5. Checking for hardcoded domain...${NC}"
-check_hardcoded_domain
+# Called bare, its return 1 for the NAS hostname tripped set -e: the hook
+# died here, before checks 6-11 and without its summary.
+if ! check_hardcoded_domain; then
+    ERRORS=$((ERRORS + 1))
+fi
 echo ""
 
 # ==========================================
@@ -169,7 +172,7 @@ echo -e "${BLUE}11. Checking documentation links...${NC}"
 if check_doc_links; then
     echo -e "    ${GREEN}OK${NC}: All internal links valid"
 else
-    ((ERRORS++))
+    ERRORS=$((ERRORS + 1))
 fi
 echo ""
 

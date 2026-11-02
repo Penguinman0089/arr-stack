@@ -14,18 +14,23 @@
 # already exists. Do not remove them, and do not "tidy" them to match a new
 # project name.
 #
-# A volume declared without `name:` is scoped by the Compose project name,
-# which — with no `name:` key at the top of this file — is derived from the
-# directory the stack is deployed in. So the physical volumes are called
-# arr-stack_<volume>, purely because the deploy directory happens to be
-# named arr-stack.
+# A volume declared without `name:` is scoped by the Compose project name.
+# Before the project name was pinned below, that name was derived from the
+# deploy directory — the physical volumes are called arr-stack_<volume>
+# purely because the directory happened to be named arr-stack — and a
+# renamed directory made Compose silently create brand-new EMPTY volumes
+# and start every container against them, all reporting healthy with their
+# config gone. Pinning the volume names decouples the data from both the
+# directory and the project name, so neither rename can strand it.
 #
-# That makes the project name load-bearing for data. Rename the deploy
-# directory, or add a `name:` key to this file, and Compose does not error
-# and does not warn — it silently creates a brand-new EMPTY volume and
-# starts the container against it. Every service comes up "healthy" with
-# its config gone. Pinning the names here decouples the data from the
-# directory, so a rename is survivable.
+# The project name is pinned too, and shared with docker-compose.traefik.yml
+# and docker-compose.utilities.yml on purpose: the three files are one
+# project, which is why `--remove-orphans` on any of them deletes the
+# others' containers (CLAUDE.md). tests/compose-validation.bats holds the
+# expected names. To keep a different project name on an existing deploy,
+# set COMPOSE_PROJECT_NAME in .env — the environment overrides this key.
+name: arr-stack
+
 volumes:
   gluetun-config:
     name: arr-stack_gluetun-config
@@ -49,8 +54,6 @@ volumes:
     name: arr-stack_lidarr-config
   readarr-config:
     name: arr-stack_readarr-config
-  whisparr-config:
-    name: arr-stack_whisparr-config
   audiobookshelf-config:
     name: arr-stack_audiobookshelf-config
   audiobookshelf-metadata:
@@ -118,7 +121,7 @@ services:
   # All services below marked "via VPN" share this network for privacy.
   # ═══════════════════════════════════════════════════════════════════════════
   gluetun:
-    image: qmcgaw/gluetun:v3.41
+    image: qmcgaw/gluetun:v3.41.3
     container_name: gluetun
     <<: *default-security
     depends_on:
@@ -126,6 +129,38 @@ services:
         condition: service_healthy  # Wait for Pi-hole DNS before VPN connects
     cap_add:
       - NET_ADMIN
+      # gluetun runs as uid 0, but `cap_drop: ALL` above also takes away caps
+      # the default Docker set would have handed it. It needs these back:
+      #
+      #   CHOWN        - gluetun chowns /etc/openvpn/target.ovpn. Only the
+      #                  OpenVPN path touches it, so VPN_TYPE=wireguard never
+      #                  notices, but VPN_TYPE=openvpn fails 100% of the time
+      #                  with "chown /etc/openvpn/target.ovpn: operation not
+      #                  permitted" and retries forever.
+      #   DAC_OVERRIDE - without it, root is subject to normal file permissions.
+      #                  OpenVPN then can't read back the file it just chowned
+      #                  away from itself ("--auth-user-pass fails with
+      #                  '/etc/openvpn/auth.conf': Permission denied"), and on
+      #                  EVERY VPN type gluetun can't write /tmp/gluetun/ip, so
+      #                  /v1/publicip/ip silently returns "" and the log fills
+      #                  with "clearing public IP data: permission denied".
+      #
+      # Adding NET_ADMIN alone looks right because every gluetun guide says
+      # that's all you need - true only because they don't drop the default caps.
+      - CHOWN
+      - DAC_OVERRIDE
+      #   SETUID       - OpenVPN drops privileges to `nonrootuser` once the
+      #                  tunnel is up. gluetun writes `user nonrootuser` into
+      #                  target.ovpn unconditionally -- including when its own
+      #                  settings summary says "Run OpenVPN as: root", and even
+      #                  with OPENVPN_PROCESS_USER=root set -- so the setuid is
+      #                  not avoidable by configuration. Without this cap:
+      #                  "setuid('nonrootuser') failed: Operation not permitted
+      #                  (errno=1)" AFTER the tunnel establishes, so the peer
+      #                  connects and the link comes up before it dies.
+      #                  SETGID is deliberately NOT here: gluetun writes no
+      #                  `group` directive, and the tunnel completes without it.
+      - SETUID
     devices:
       - /dev/net/tun:/dev/net/tun
     volumes:
@@ -139,6 +174,29 @@ services:
       - SERVER_COUNTRIES=${VPN_COUNTRIES}
       - TZ=${TZ}
       - DNS_ADDRESS=172.20.0.5
+      # Health check targets, deliberately IP:port and not hostnames.
+      #
+      # DNS_ADDRESS above disables gluetun's own resolver (it says so at every
+      # startup), making Pi-hole a hard dependency for all DNS. gluetun's
+      # default health targets are `github.com:443,cloudflare.com:443` — NAMES.
+      # So the check that decides whether the VPN is alive was being answered
+      # by Pi-hole, and a Pi-hole wobble was indistinguishable from a dead
+      # tunnel. gluetun's response is to rebuild the tunnel, which cannot fix
+      # DNS, so it loops — taking every VPN-side container's network with it on
+      # each pass, and never recovering on its own.
+      #
+      # On 2026-08-05 that produced 323 VPN rebuilds and 10 container restarts
+      # between 19:32 and 21:18. Pi-hole's own query log for the window shows
+      # it flapping rather than dead — multi-minute gaps, and 17 minutes at
+      # 2 queries/min against a 20–150/min baseline — and gluetun's restart
+      # clusters line up with the gaps. It stopped only when the container was
+      # restarted by hand.
+      #
+      # These addresses take DNS out of the decision entirely: the check now
+      # tests the tunnel and nothing else. DNS is still checked, but by
+      # scripts/check-vpn.sh, where failing means being told about it rather
+      # than having the VPN torn down in response.
+      - HEALTH_TARGET_ADDRESSES=1.1.1.1:443,8.8.8.8:443
       - FIREWALL_OUTBOUND_SUBNETS=${LAN_SUBNET},172.20.0.0/24,10.8.1.0/24
       # Sonarr/Radarr live on the bridge now, so reaching qBittorrent/SABnzbd/
       # Prowlarr means an actual inbound connection through gluetun's interface,
@@ -172,7 +230,7 @@ services:
   # Access: qbit.lan | qbit.yourdomain.com | NAS_IP:8085
   # ═══════════════════════════════════════════════════════════════════════════
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:5.2.3
+    image: lscr.io/linuxserver/qbittorrent:5.3.0
     container_name: qbittorrent
     <<: *lsio-security
     network_mode: "service:gluetun"
@@ -189,6 +247,10 @@ services:
     volumes:
       - qbittorrent-config:/config
       - ${MEDIA_ROOT}:/data
+      # Re-pins BitTorrent traffic to gluetun's tun0 and keeps it pinned. Without
+      # it, a rebuilt config volume loses the binding and every torrent silently
+      # stalls at metaDL. See docs/TROUBLESHOOTING.md.
+      - ./qbittorrent/custom-services.d:/custom-services.d:ro
     labels:
       - deunhealth.restart.on.unhealthy=true
       - gluetun.dependent=true  # gluetun-recover restarts this if SIGKILLed by a gluetun restart
@@ -206,7 +268,7 @@ services:
   # Access: sabnzbd.lan | sabnzbd.yourdomain.com | NAS_IP:8082
   # ═══════════════════════════════════════════════════════════════════════════
   sabnzbd:
-    image: lscr.io/linuxserver/sabnzbd:5.1.1
+    image: lscr.io/linuxserver/sabnzbd:5.1.3
     container_name: sabnzbd
     <<: *lsio-security
     network_mode: "service:gluetun"
@@ -243,7 +305,7 @@ services:
   # It reaches the VPN-side download clients via the `gluetun` hostname.
   # ═══════════════════════════════════════════════════════════════════════════
   sonarr:
-    image: lscr.io/linuxserver/sonarr:4.0.19
+    image: lscr.io/linuxserver/sonarr:4.0.20
     container_name: sonarr
     <<: *lsio-security
     environment:
@@ -274,7 +336,7 @@ services:
   # Access: prowlarr.lan | prowlarr.yourdomain.com | NAS_IP:9696
   # ═══════════════════════════════════════════════════════════════════════════
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:2.5.2
+    image: lscr.io/linuxserver/prowlarr:2.7.0
     container_name: prowlarr
     <<: *lsio-security
     network_mode: "service:gluetun"
@@ -308,7 +370,7 @@ services:
   # `gluetun` hostname.
   # ═══════════════════════════════════════════════════════════════════════════
   radarr:
-    image: lscr.io/linuxserver/radarr:6.3.0
+    image: lscr.io/linuxserver/radarr:6.4.4
     container_name: radarr
     <<: *lsio-security
     environment:
@@ -339,7 +401,7 @@ services:
   # Access: plex.lan | plex.yourdomain.com | NAS_IP:32400/web
   # ═══════════════════════════════════════════════════════════════════════════
   plex:
-    image: lscr.io/linuxserver/plex:1.43.3
+    image: lscr.io/linuxserver/plex:1.43.5
     container_name: plex
     <<: *lsio-security
     ports:
@@ -382,19 +444,23 @@ services:
   # DNSCRYPT-PROXY - DNS over HTTPS/DNSCrypt proxy. Encrypts DNS queries.
   # No web UI. Used internally by Pi-hole at 172.20.0.6:5053
   # Protocols: DoH (DNS over HTTPS), DNSCrypt, Anonymized DNS
+  # Config: dnscrypt-proxy/dnscrypt-proxy.toml (the image default, plus a denylist of DNS64 resolvers)
   # ═══════════════════════════════════════════════════════════════════════════
   dnscrypt-proxy:
-    image: klutchell/dnscrypt-proxy:2.1.18
+    image: klutchell/dnscrypt-proxy:2.1.20
     container_name: dnscrypt-proxy
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
+    group_add:
+      - "${PGID}"  # the toml below is read from the checkout; a NAS share that admits only its own accounts (UGOS does) refuses the image's uid 65532 without a group it knows
     networks:
       arr-stack:
         ipv4_address: 172.20.0.6
     volumes:
-      - dnscrypt-config:/config
+      - dnscrypt-config:/config  # resolver-list cache (public-resolvers.md, relays.md, .minisig)
+      - ./dnscrypt-proxy/dnscrypt-proxy.toml:/config/dnscrypt-proxy.toml:ro  # the file only: the volume keeps the cache beside it
     environment:
       - TZ=${TZ}
     restart: always
@@ -413,7 +479,7 @@ services:
   # Configure upstream DNS: Settings → DNS → Custom = 172.20.0.6#5053
   # ═══════════════════════════════════════════════════════════════════════════
   pihole:
-    image: pihole/pihole:2026.07.2
+    image: pihole/pihole:2026.10.1
     container_name: pihole
     depends_on:
       dnscrypt-proxy:
@@ -460,17 +526,13 @@ services:
   # Access: seerr.lan | seerr.yourdomain.com | NAS_IP:5055
   # ═══════════════════════════════════════════════════════════════════════════
   seerr:
-    image: ghcr.io/seerr-team/seerr:v3.4.1
+    image: ghcr.io/seerr-team/seerr:v3.5.1
     init: true
     container_name: seerr
+    # No cap_add: the image runs as node (UID 1000), and a non-root process
+    # gets no effective capabilities from cap_add. Docker copies the image's
+    # node-owned /app/config into a new volume, so Seerr can write it anyway.
     <<: *default-security
-    cap_add:
-      - CHOWN           # Create config subdirs on first run
-      - DAC_OVERRIDE    # Write to root-owned volume directories
-    depends_on:
-      gluetun:
-        condition: service_healthy  # Needs gluetun to reach Sonarr/Radarr
-        restart: true
     ports:
       - "5055:5055"
     environment:
@@ -482,6 +544,12 @@ services:
         ipv4_address: 172.20.0.8
     volumes:
       - seerr-config:/app/config
+    # Seerr shows "/app/config volume mount was not configured properly" while
+    # /app/config/DOCKER exists. The image ships that marker so a missing mount
+    # gets noticed, but Docker copies image contents into a new named volume,
+    # marker included, so every fresh install saw the warning. The data does
+    # persist. Delete the marker on start; `npm start` is the image's own CMD.
+    command: ["sh", "-c", "rm -f /app/config/DOCKER && exec npm start"]
     restart: always
     logging: *default-logging
     healthcheck:
@@ -496,13 +564,9 @@ services:
   # Access: bazarr.lan | bazarr.yourdomain.com | NAS_IP:6767
   # ═══════════════════════════════════════════════════════════════════════════
   bazarr:
-    image: lscr.io/linuxserver/bazarr:1.6.0
+    image: lscr.io/linuxserver/bazarr:1.6.2
     container_name: bazarr
     <<: *lsio-security
-    depends_on:
-      gluetun:
-        condition: service_healthy  # Needs gluetun to reach Sonarr/Radarr
-        restart: true
     ports:
       - "6767:6767"
     environment:
@@ -532,7 +596,7 @@ services:
   # No web UI. Used internally by Prowlarr at localhost:8191
   # ═══════════════════════════════════════════════════════════════════════════
   flaresolverr:
-    image: ghcr.io/flaresolverr/flaresolverr:v3.5.0
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.2
     container_name: flaresolverr
     <<: *default-security
     network_mode: "service:gluetun"
@@ -564,7 +628,7 @@ services:
   # Access: lidarr.lan | lidarr.yourdomain.com | NAS_IP:8686
   # ═══════════════════════════════════════════════════════════════════════════
   lidarr:
-    image: lscr.io/linuxserver/lidarr:3.1.0
+    image: lscr.io/linuxserver/lidarr:3.1.6
     container_name: lidarr
     <<: *lsio-security
     environment:
@@ -622,47 +686,13 @@ services:
       start_period: 60s
 
   # ═══════════════════════════════════════════════════════════════════════════
-  # WHISPARR - Adult scene/movie collection manager. Same VPN topology as
-  # Sonarr/Radarr/Lidarr. No linuxserver.io image exists, so this uses hotio's
-  # build instead (same s6-overlay init, same lsio-security caps). No tagged
-  # stable release upstream - pinned to a current v3 develop build.
-  # Access: whisparr.lan | whisparr.yourdomain.com | NAS_IP:6969
-  # ═══════════════════════════════════════════════════════════════════════════
-  whisparr:
-    image: ghcr.io/hotio/whisparr:v3-develop-v3.3.9
-    container_name: whisparr
-    <<: *lsio-security
-    environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - UMASK=002
-      - TZ=${TZ}
-      - WEBUI_PORTS=6969/tcp
-    ports:
-      - "6969:6969"
-    volumes:
-      - whisparr-config:/config
-      - ${MEDIA_ROOT}:/data
-    networks:
-      arr-stack:
-        ipv4_address: 172.20.0.24
-    restart: always
-    logging: *default-logging
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6969/"]
-      interval: 3m
-      timeout: 10s
-      retries: 2
-      start_period: 60s
-
-  # ═══════════════════════════════════════════════════════════════════════════
   # AUDIOBOOKSHELF - Audiobook and podcast server. Purpose-built for
   # audiobooks: per-user resume position, variable playback speed, and
   # dedicated mobile apps (unlike using Plex's Music library as a workaround).
   # Access: audiobookshelf.lan | NAS_IP:13378
   # ═══════════════════════════════════════════════════════════════════════════
   audiobookshelf:
-    image: advplyr/audiobookshelf:2.36.0
+    image: advplyr/audiobookshelf:2.37.2
     container_name: audiobookshelf
     <<: *default-security
     cap_add:

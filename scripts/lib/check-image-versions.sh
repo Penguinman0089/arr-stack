@@ -9,22 +9,28 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 _IMAGE_CACHE="/tmp/arr-stack-image-cache.json"
 _CACHE_TTL=86400  # seconds (24 hours)
 
+# GHCR tag listing: tags per page, and how many pages to follow before
+# giving up (10 x 1000 is well past the biggest listing here, seerr's ~440).
+_GHCR_PAGE_SIZE=1000
+_GHCR_MAX_PAGES=10
+
 # Get cached result for an image, or empty if stale/missing
 _cache_get() {
-    local image="$1"
-    if [[ ! -f "$_IMAGE_CACHE" ]]; then
-        return 1
-    fi
+    local image="$1" line value stamp
+    [[ -f "$_IMAGE_CACHE" ]] || return 1
 
-    local cache_age
-    cache_age=$(( $(date +%s) - $(stat -f %m "$_IMAGE_CACHE" 2>/dev/null || stat -c %Y "$_IMAGE_CACHE" 2>/dev/null || echo 0) ))
-    if [[ $cache_age -gt $_CACHE_TTL ]]; then
-        rm -f "$_IMAGE_CACHE"
-        return 1
-    fi
-
-    # Simple grep-based lookup: "image=latest_tag"
-    grep "^${image}=" "$_IMAGE_CACHE" 2>/dev/null | cut -d= -f2-
+    # EACH ENTRY CARRIES ITS OWN TIMESTAMP ("image=latest|epoch"). The TTL
+    # used to be the cache FILE's age, and every _cache_set rewrites the file,
+    # so any new entry renewed all the old ones: seerr's wrong "current"
+    # outlived the 24 h by riding on other images' writes. Found 2026-09-28.
+    # A line in the old format has no stamp and reads as expired.
+    line=$(grep "^${image}=" "$_IMAGE_CACHE" 2>/dev/null | tail -1)
+    value=${line#*=}
+    [[ "$value" == *"|"* ]] || return 1
+    stamp=${value##*|}
+    [[ "$stamp" =~ ^[0-9]+$ ]] || return 1
+    (( $(date +%s) - stamp <= _CACHE_TTL )) || return 1
+    echo "${value%|*}"
 }
 
 # Store result in cache
@@ -35,24 +41,18 @@ _cache_set() {
         grep -v "^${image}=" "$_IMAGE_CACHE" > "${_IMAGE_CACHE}.tmp" 2>/dev/null || true
         mv "${_IMAGE_CACHE}.tmp" "$_IMAGE_CACHE"
     fi
-    echo "${image}=${latest}" >> "$_IMAGE_CACHE"
+    echo "${image}=${latest}|$(date +%s)" >> "$_IMAGE_CACHE"
 }
 
-# Query Docker Hub for latest tag matching a version pattern
-# Args: $1=namespace/image (e.g. "linuxserver/sonarr"), $2=current tag
-# Returns: latest tag or empty
-_query_dockerhub() {
-    local repo="$1" current_tag="$2"
+# Pull the plain version tags out of one Docker Hub tag listing.
+# Args: $1=response body. Returns 1 if the body is not a tag listing at all.
+_dockerhub_version_tags() {
+    local response="$1"
 
-    # page_size=100, not 25. LinuxServer pushes nightlies continuously, so
-    # ordering=last_updated fills the first 25 entirely with nightly and
-    # arch-prefixed variants — every one of radarr's first 25 was a nightly,
-    # and the newest STABLE tag never appeared in the window at all.
-    local url="https://hub.docker.com/v2/repositories/${repo}/tags/?page_size=100&ordering=last_updated"
-
-    local response
-    # 3s was too tight for a 100-tag page.
-    response=$(curl -s --max-time 15 "$url" 2>/dev/null) || return 1
+    # A real listing always has "results", even an empty one. An empty body,
+    # an HTML error page or {"message":"...rate limit..."} is the registry NOT
+    # answering, and must never read as "answered, no newer version".
+    [[ "$response" == *'"results"'* ]] || return 1
 
     # Keep ONLY plain version tags: 1.6.0, 4.0.19, v3.5.0, 2026.8.2, 10.11.
     #
@@ -65,10 +65,47 @@ _query_dockerhub() {
         | grep -oE '"name"[[:space:]]*:[[:space:]]*"[^"]+"' \
         | sed 's/.*:[[:space:]]*"//;s/"$//' \
         | grep -E '^v?[0-9]+(\.[0-9]+)*$'
+    return 0
+}
+
+# Query Docker Hub for latest tag matching a version pattern
+# Args: $1=namespace/image (e.g. "linuxserver/sonarr"), $2=current tag
+# Returns: version tags (possibly none) on stdout; 1 if the registry did not
+# answer, which the caller reports differently from "no version tags".
+_query_dockerhub() {
+    local repo="$1" current_tag="$2"
+
+    # page_size=100, not 25. LinuxServer pushes nightlies continuously, so
+    # ordering=last_updated fills the first 25 entirely with nightly and
+    # arch-prefixed variants — every one of radarr's first 25 was a nightly,
+    # and the newest STABLE tag never appeared in the window at all.
+    local url="https://hub.docker.com/v2/repositories/${repo}/tags/?page_size=100&ordering=last_updated"
+
+    local response tags
+    # 3s was too tight for a 100-tag page.
+    response=$(curl -s --max-time 15 "$url" 2>/dev/null) || return 1
+    tags=$(_dockerhub_version_tags "$response") || return 1
+
+    # Even 100 is not enough for a repo whose CI tags every commit: all 100 of
+    # klutchell/dnscrypt-proxy's newest were build-<sha>, renovate branches and
+    # main, so nothing survived the filter and the image was "skipped" on
+    # every run — it could never have reported a release. Found 2026-09-28.
+    # Ask again for only tags containing a dot (name= is a substring match).
+    # Not "name=2." for the current major: that could never see a 3.0.0. A
+    # dotless tag has no such filter, so it stays a visible skip.
+    if [[ -z "$tags" && "$current_tag" == *.* ]]; then
+        response=$(curl -s --max-time 15 "${url}&name=." 2>/dev/null) || return 1
+        tags=$(_dockerhub_version_tags "$response") || return 1
+    fi
+
+    [[ -n "$tags" ]] && echo "$tags"
+    return 0
 }
 
 # Query GHCR for tags
 # Args: $1=owner/image (e.g. "flaresolverr/flaresolverr"), $2=current tag
+# Returns: version tags on stdout; 1 if the registry did not answer; 2 if the
+# listing ran past _GHCR_MAX_PAGES pages and was not read to the end.
 _query_ghcr() {
     local repo="$1"
 
@@ -88,13 +125,44 @@ _query_ghcr() {
             | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
     [[ -z "$token" ]] && return 1
 
-    local url="https://ghcr.io/v2/${repo}/tags/list?n=200"
+    # FOLLOW THE Link: rel="next" HEADER. GHCR pages the listing and orders it
+    # by push, oldest first, so the newest releases are on the LAST page. It
+    # used to read one page of 200: seerr's stopped at v3.1.0, v3.4.1 and
+    # v3.5.0 sat on pages 2 and 3, and the pinned v3.4.1 was cached "current".
+    # Found 2026-09-28.
+    local url="https://ghcr.io/v2/${repo}/tags/list?n=${_GHCR_PAGE_SIZE}"
+    local hdrs response next all="" pages=0
+    hdrs=$(mktemp) || return 1
 
-    local response
-    # 3s was too tight once a token round-trip is involved.
-    response=$(curl -s --max-time 10 -H "Authorization: Bearer $token" "$url" 2>/dev/null) || return 1
+    while [[ -n "$url" ]]; do
+        # Out of pages with more to come: the newest tags are the unread
+        # ones, so a partial listing would say "current" exactly when wrong.
+        if (( pages++ >= _GHCR_MAX_PAGES )); then
+            rm -f "$hdrs"
+            return 2
+        fi
+        # 3s was too tight once a token round-trip is involved.
+        response=$(curl -s --max-time 10 -D "$hdrs" -H "Authorization: Bearer $token" "$url" 2>/dev/null) \
+            || { rm -f "$hdrs"; return 1; }
+        # {"errors":[...TOOMANYREQUESTS...]} is not an answer; a tag list has
+        # "tags". That goes for every page: page 1 alone is not the listing.
+        [[ "$response" == *'"tags"'* ]] || { rm -f "$hdrs"; return 1; }
+        all+="$response"$'\n'
+        next=$(tr -d '\r' < "$hdrs" \
+               | sed -n 's/^[Ll][Ii][Nn][Kk]:[[:space:]]*<\([^>]*\)>.*rel="\{0,1\}next.*/\1/p' | head -1)
+        # GHCR sends </v2/...?last=...&n=...>, relative to itself. A next page
+        # in any other form is not silently dropped (that would be page 1 again
+        # posing as the listing), and the token never leaves ghcr.io.
+        case "$next" in
+            "")                url="" ;;
+            /*)                url="https://ghcr.io$next" ;;
+            https://ghcr.io/*) url="$next" ;;
+            *)                 rm -f "$hdrs"; return 1 ;;
+        esac
+    done
+    rm -f "$hdrs"
 
-    echo "$response" | grep -oE '"[v]?[0-9][^"]*"' | tr -d '"' | while read -r tag; do
+    echo "$all" | grep -oE '"[v]?[0-9][^"]*"' | tr -d '"' | while read -r tag; do
         case "$tag" in
             *-beta*|*-alpha*|*-rc*|*-dev*) continue ;;
         esac
@@ -190,7 +258,7 @@ _find_latest() {
 }
 
 check_image_versions() {
-    local repo_root warnings=0
+    local repo_root
     repo_root=$(get_repo_root)
 
     # Quick network check - skip if offline
@@ -237,6 +305,7 @@ check_image_versions() {
     local checked=0
     local updates=0
     local skipped=0
+    local skip_lines=()
 
     for image_ref in "${images[@]}"; do
         local registry="" namespace="" image="" tag=""
@@ -276,28 +345,33 @@ check_image_versions() {
         if [[ -n "$cached_latest" ]]; then
             if [[ "$cached_latest" != "$tag" && "$cached_latest" != "current" ]]; then
                 echo -e "      ${YELLOW:-}UPDATE${NC:-}: $image $tag → $cached_latest available"
-                ((updates++))
+                updates=$((updates + 1))
             fi
-            ((checked++))
+            checked=$((checked + 1))
             continue
         fi
 
-        # Query the appropriate registry
-        local tags_list=""
+        # Query the appropriate registry. Non-zero status = it did not answer;
+        # zero with no tags = it answered, with no version tags in it.
+        local tags_list="" query_rc=0
         case "$registry" in
             ghcr)
-                tags_list=$(_query_ghcr "$namespace" "$tag")
+                tags_list=$(_query_ghcr "$namespace" "$tag") || query_rc=$?
                 ;;
             lscr)
-                tags_list=$(_query_lscr "$image" "$tag")
+                tags_list=$(_query_lscr "$image" "$tag") || query_rc=$?
                 ;;
             dockerhub)
-                tags_list=$(_query_dockerhub "$namespace" "$tag")
+                tags_list=$(_query_dockerhub "$namespace" "$tag") || query_rc=$?
                 ;;
         esac
 
-        if [[ -z "$tags_list" ]]; then
-            ((skipped++))
+        if [[ $query_rc -ne 0 || -z "$tags_list" ]]; then
+            skipped=$((skipped + 1))
+            local reason="registry did not answer"
+            [[ $query_rc -eq 0 ]] && reason="registry answered, but with no version tags"
+            [[ $query_rc -eq 2 ]] && reason="tag listing runs past ${_GHCR_MAX_PAGES} pages, newest tags unread"
+            skip_lines+=("$image_ref not checked - $reason")
             # DELIBERATELY NOT CACHED. This used to _cache_set "current" here,
             # which turned a failed lookup into a positive "you are up to date"
             # for the whole cache lifetime — so one rate-limited run produced a
@@ -314,11 +388,11 @@ check_image_versions() {
         if [[ -n "$latest" ]]; then
             echo -e "      ${YELLOW:-}UPDATE${NC:-}: $image $tag → $latest available"
             _cache_set "$image_ref" "$latest"
-            ((updates++))
+            updates=$((updates + 1))
         else
             _cache_set "$image_ref" "current"
         fi
-        ((checked++))
+        checked=$((checked + 1))
     done
 
     if [[ $updates -eq 0 ]]; then
@@ -327,8 +401,14 @@ check_image_versions() {
         echo "      Found $updates update(s) across $checked images"
     fi
 
+    # Name every skip and say why. The bare "(1 images skipped - registry
+    # unavailable or rate-limited)" printed on every run for dnscrypt-proxy,
+    # blamed a registry that had answered fine, and read as routine noise.
     if [[ $skipped -gt 0 ]]; then
-        echo "      ($skipped images skipped - registry unavailable or rate-limited)"
+        local line
+        for line in "${skip_lines[@]}"; do
+            echo -e "      ${YELLOW:-}SKIP${NC:-}: $line"
+        done
     fi
 
     # Always return 0 - this is a warning-only check

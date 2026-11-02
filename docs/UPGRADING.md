@@ -5,6 +5,10 @@ Already running an earlier version? There are two types of upgrades:
 1. **Stack updates** — New features, bug fixes, compose changes from this repo
 2. **Container image updates** — Newer versions of Sonarr, Radarr, Plex, etc.
 
+> **This fork keeps Plex.** Jellyfin-specific migrations below apply only to installations that deliberately use Jellyfin instead. Plex config and watch history still need a separate manual backup.
+
+> **The current upstream integration is not NAS-verified.** Deploy and test its feature branch first, following [the NAS deployment rules](../CLAUDE.md#deploying-to-the-nas), before merging to `main`. Back up config volumes before database migrations. Applying the updated app-configuration script adopts the new HDR/Dolby Vision policy and may trigger replacement downloads; configarr remains opt-in.
+
 ## Stack Updates (this repo)
 
 SSH into your NAS and pull the latest changes:
@@ -15,22 +19,22 @@ cd $NAS_STACK_DIR  # or your deployment path
 
 git pull origin main
 docker compose -f docker-compose.arr-stack.yml up -d --force-recreate  # Updates AND restarts - no further steps needed
-# If you also run utilities (beszel, configarr, etc.), add -f docker-compose.utilities.yml after the first -f
+# If you also run utilities (beszel, uptime-kuma, etc.), add -f docker-compose.utilities.yml after the first -f
 ```
 
 The `--force-recreate` flag ensures containers restart with new config even if the image hasn't changed.
 
 ## Container Image Updates (Sonarr, Plex, etc.)
 
-To pull the latest Docker images and restart with them:
+The compose files pin every image to a version, so newer Sonarr, Plex and so on arrive as a stack update (above). `pull` fetches the pinned tags, for example after a `git pull` or after you change a tag yourself:
 
 ```bash
 docker compose -f docker-compose.arr-stack.yml pull
 docker compose -f docker-compose.arr-stack.yml up -d  # Restarts containers with new images - no further steps needed
-# If you also run utilities (beszel, configarr, etc.), add -f docker-compose.utilities.yml to both commands
+# If you also run utilities (beszel, uptime-kuma, etc.), add -f docker-compose.utilities.yml to both commands
 ```
 
-> **Ugreen NAS users:** UGOS has a built-in Container Manager that automatically updates images on a schedule. Check **Docker → Settings → Auto Update** to configure. You can skip manual image updates if this is enabled.
+> **Ugreen NAS users: turn UGOS's automatic image updates off** (Docker app → Management → Image update → untick **Update detection**). It replaces containers outside compose, and it cannot rebuild the ones that share gluetun's network: it deletes them and fails to create the replacements. See [TROUBLESHOOTING.md](TROUBLESHOOTING.md#indexers-all-unavailable-every-monday-morning-ugos-docker-auto-update).
 
 > **Note:** Docker named volumes persist across restarts. All your service configurations (Sonarr settings, API keys, library data, etc.) are preserved.
 
@@ -39,6 +43,320 @@ docker compose -f docker-compose.arr-stack.yml up -d  # Restarts containers with
 ## Migration Notes
 
 When upgrading across versions, check below for any action required.
+
+### v1.18.0 → Unreleased
+
+dnscrypt-proxy's config now lives in the repo as `dnscrypt-proxy/dnscrypt-proxy.toml`, bind-mounted read-only over the copy in the `dnscrypt-config` volume. It is the image default plus `disabled_server_names = ['yunzheng-dns64']`, a DNS64 resolver in the public pool whose synthesised `64:ff9b::/96` answers nothing on a dual-stack LAN can route. `git pull` brings the file; recreating the service applies the mount:
+
+```bash
+cd $NAS_STACK_DIR && git pull
+docker compose -f docker-compose.arr-stack.yml up -d --no-deps dnscrypt-proxy
+```
+
+Pi-hole answers from its cache while dnscrypt-proxy comes back (about 25 seconds to a full server list). An answer Pi-hole already cached from the DNS64 resolver expires with its TTL; `docker exec -u pihole pihole pihole reloaddns` flushes the cache now without restarting the DNS server (as the `pihole` user: FTL runs as that user, and with every capability dropped root in the container can't signal it).
+
+If you keep a customised copy of `docker-compose.arr-stack.yml`, add the `group_add` and the second `volumes:` line to the service yourself before the `up -d`. The group matters on a NAS whose shares admit only its own accounts (UGOS): without it the image's uid 65532 gets `permission denied` on the mounted file and the container restart-loops, leaving Pi-hole with no upstream.
+
+```yaml
+    group_add:
+      - "${PGID}"
+    volumes:
+      - dnscrypt-config:/config
+      - ./dnscrypt-proxy/dnscrypt-proxy.toml:/config/dnscrypt-proxy.toml:ro
+```
+
+Or leave compose alone and change the copy in the volume. The image has no shell, so copy the file out and back:
+
+```bash
+docker cp dnscrypt-proxy:/config/dnscrypt-proxy.toml /tmp/dnscrypt-proxy.toml
+sed -i "s/^disabled_server_names = \[\]/disabled_server_names = ['yunzheng-dns64']/" /tmp/dnscrypt-proxy.toml
+docker cp /tmp/dnscrypt-proxy.toml dnscrypt-proxy:/config/dnscrypt-proxy.toml
+docker compose -f docker-compose.arr-stack.yml restart dnscrypt-proxy
+```
+
+That edit lives in the volume and is lost when the volume is recreated; the mount is the durable fix.
+
+`configure-apps.sh` now sets each Sonarr and Radarr quality profile's **Upgrade Until Custom Format Score** to `500`, the `DV HDR10 (Profile 8.1)` score, so an 8.1 release can replace a file already on disk. Nothing to recreate. Apply it to a running stack with:
+
+```bash
+cd $NAS_STACK_DIR && git pull
+./scripts/configure-apps.sh --only sonarr --dry-run
+./scripts/configure-apps.sh --only sonarr
+./scripts/configure-apps.sh --only radarr
+```
+
+It only ever raises the score, so a profile you set higher yourself is left alone. Or set it by hand: Settings → Profiles → your quality profile → **Upgrade Until Custom Format Score** = `500`. Files already in the library are replaced only when an 8.1 release of the same quality appears in RSS. To swap the ones that matter now, find them with `find tv movies -name '*HDR10Plus*' ! -name '*DV*'` under your media root and grab an 8.1 release from each one's interactive search.
+
+The same commands add the `HDR10+ (no DV)` custom format to Sonarr and Radarr and score it `-1000` in every profile, so a 4K HDR10+ release without Dolby Vision is refused instead of grabbed as an upgrade. Nothing to recreate. To add it by hand, follow [Sonarr step 9](APP-CONFIG.md#44-sonarr-tv-shows) in both apps. Files already in the library from a matching release now score `-1000`, so the next same-quality release that scores 0 or more replaces them on its own. If you kept a 1080p file in place of an HDR10+-only 4K one, you can leave it monitored now.
+
+Seven image bumps arrive with the same `git pull` and need nothing beyond a pull and an `up -d` per compose file. Two of them change behaviour you may rely on:
+
+- **Uptime Kuma 2.5.8 removes TLS from the TCP Port monitor.** A TCP monitor that had TLS switched on becomes a plain port check and stops checking the certificate. Look at your TCP monitors before upgrading, and replace any you need with an HTTP(S) monitor (which checks certificate expiry). The stack's own monitors are all HTTP or push, so nothing changes for them.
+- **Prowlarr 2.7.0 drops `0.0.0.0` and `[::]` from Allowed Hosts** and logs "Ignoring … in Allowed Hosts, bind addresses are not host names". If those were the only entries, the list is now empty and Prowlarr accepts any Host header, as it does when the setting is left blank (the default here). Put real hostnames there if you meant to filter.
+
+### v1.17.0 → v1.18.0
+
+Eight image bumps. Pi-hole's gravity database migration is one-way and qBittorrent rewrites its config file to a newer layout, so back up those two volumes first, with the services stopped. Jellyfin 12.3 runs no migration; back it up only if you want to, and know that `jellyfin-config` is about 4 GB (almost all `metadata/`), so a gzip takes around 12 minutes on a NAS CPU with Jellyfin down. Use `tar cf` or `--exclude=./metadata`. Check that nothing is playing or downloading first: recreating Pi-hole takes every `.lan` name and LAN DNS down for about 35 seconds, and stopping qBittorrent pauses its downloads.
+
+Pass only the services you mean, each through its own compose file, and never `--remove-orphans`:
+
+```bash
+cd $NAS_STACK_DIR && git pull
+docker compose -f docker-compose.arr-stack.yml pull pihole qbittorrent jellyfin dnscrypt-proxy
+docker compose -f docker-compose.arr-stack.yml stop pihole qbittorrent
+mkdir -p backups
+for v in pihole-etc-pihole qbittorrent-config; do
+  docker run --rm -v arr-stack_$v:/src:ro -v "$PWD/backups":/bak alpine tar cf /bak/$v-$(date +%Y%m%d).tar -C /src .
+done
+docker compose -f docker-compose.arr-stack.yml up -d --no-deps pihole qbittorrent jellyfin dnscrypt-proxy
+
+docker compose -f docker-compose.cloudflared.yml pull cloudflared
+docker compose -f docker-compose.cloudflared.yml up -d --no-deps cloudflared
+docker compose -f docker-compose.tailscale.yml pull tailscale
+docker compose -f docker-compose.tailscale.yml up -d tailscale
+docker compose -f docker-compose.utilities.yml pull uptime-kuma
+docker compose -f docker-compose.utilities.yml up -d --no-deps uptime-kuma
+```
+
+configarr is opt-in and is pulled the next time you run it. Afterwards:
+
+- **Pi-hole:** `http://pihole.lan/` now answers 404. Use `http://pihole.lan/admin/`, and point any monitor or bookmark of your own at `/admin/` too. Pi-hole's own 17 fixes are in; nothing to configure. Over the first night it deletes queries older than `database.maxDBdays` (91), which may take a while on a large `pihole-FTL.db`.
+- **qBittorrent:** settings carry over (port, server domains, auth whitelist, categories, VueTorrent). If you sit it behind a reverse proxy that sets `X-Forwarded-For`, 5.3.0 stops trusting that header for authentication, which is the point of the fix.
+- **Jellyfin:** wait for `Startup complete` in `docker logs jellyfin`. A script of your own that authenticates with `X-Emby-Token` gets 401 from Jellyfin 12; send `Authorization: MediaBrowser Token="<key>"` instead.
+- **Tailscale, cloudflared, Uptime Kuma, dnscrypt-proxy:** nothing to do.
+
+### v1.16.1 → v1.17.0
+
+One image bump. Seerr's release is security-only with no database migration, so `git pull`, then recreate it through its own compose file:
+
+```bash
+cd $NAS_STACK_DIR && git pull
+docker compose -f docker-compose.arr-stack.yml pull seerr
+docker compose -f docker-compose.arr-stack.yml up -d --no-deps seerr   # v3.5.1
+```
+
+On a NAS CPU, Seerr takes a few minutes from container start to `Server ready on port 5055` in `docker logs seerr`, and its page answers nothing until then. The healthcheck allows for it; don't recreate it again.
+
+Nothing else in this release touches a running container.
+
+- **The daily stuck-request check** is new and optional. It posts through `HA_WEBHOOK_URL` in `.env` (set up in v1.16.0). Prove the webhook with `./scripts/check-stuck-requests.sh --test` and look for the notice in the Home Assistant panel, run it once by hand with `-v` to see what it would report, then add the cron line from [MAINTENANCE.md § Stuck Requests](MAINTENANCE.md#stuck-requests). Only `--apply` changes anything in an app: it queues a Sonarr or Radarr search for a release RSS missed.
+- **Uptime Kuma:** if you set up Kuma's notification from the earlier steps and alerts arrive twice, delete the older notification ([HOME-ASSISTANT.md](HOME-ASSISTANT.md)).
+- **e2e tests on your dev machine:** `npm install` picks up dotenv 18. This repository does not track an npm lockfile; `npm ci` needs one generated first.
+
+### v1.16.0 → v1.16.1
+
+DIUN is removed. `git pull`, then delete what an earlier version left behind. Compose no longer knows the service, so remove it by name:
+
+```bash
+docker rm -f diun                      # if it is still there
+```
+
+Keep `arr-stack_diun-data` for rollback. Removing the service from Compose does not delete that volume; remove it separately only after you no longer need its data.
+
+Delete `DIUN_SCHEDULE` and `DIUN_WEBHOOK_URL` from `.env`. In Home Assistant, the automation's DIUN branch is now dead code and does no harm. To drop it, delete the lines that mention `diun` (or re-paste [HOME-ASSISTANT-notifications.yaml](HOME-ASSISTANT-notifications.yaml), keeping your `CHANGE-ME` values and any changes of your own).
+
+### v1.15.0 → v1.16.0
+
+**On a Ugreen NAS, first turn off UGOS's image updater** (Docker app → Management → Image update → untick **Update detection** → Apply). It deletes containers it can't rebuild.
+
+Eight image bumps. Jellyfin's and Beszel's database changes are one-way, so back up their config volumes first, with both stopped (the `up -d` below starts them again on the new images). Pass only the services you mean, each through its own compose file, and never `--remove-orphans`:
+
+```bash
+cd $NAS_STACK_DIR && git pull
+docker compose -f docker-compose.arr-stack.yml stop jellyfin
+docker compose -f docker-compose.utilities.yml stop beszel
+mkdir -p backups
+for v in jellyfin-config beszel-data; do
+  docker run --rm -v arr-stack_$v:/src:ro -v "$PWD/backups":/bak alpine tar czf /bak/$v-$(date +%Y%m%d).tgz -C /src .
+done
+
+docker compose -f docker-compose.arr-stack.yml pull jellyfin qbittorrent
+docker compose -f docker-compose.arr-stack.yml up -d --no-deps jellyfin qbittorrent seerr bazarr   # seerr/bazarr: depends_on changed
+docker compose -f docker-compose.cloudflared.yml pull cloudflared
+docker compose -f docker-compose.cloudflared.yml up -d --no-deps cloudflared
+docker compose -f docker-compose.utilities.yml pull gluetun-recover uptime-kuma beszel beszel-agent
+docker compose -f docker-compose.utilities.yml up -d --no-deps gluetun-recover uptime-kuma beszel beszel-agent
+```
+
+Wait for `Startup complete` in `docker logs jellyfin`; its healthcheck goes green before the migrations finish.
+
+- **Notifications:** set up the one automation and point every sender at it ([HOME-ASSISTANT.md](HOME-ASSISTANT.md)). If Uptime Kuma uses its *Home Assistant* notification type, switch it to the webhook described there, then press **Test** and check your phone.
+- **DIUN:** removed in v1.16.1; see above.
+- **Backups grow** (the Sonarr, Radarr and Jellyfin databases are now in them), and a backup with a failed volume exits 1.
+
+### v1.14.0 → v1.15.0
+
+`git pull`, then recreate the two services whose definitions changed, each through its own compose file:
+
+```bash
+docker compose -f docker-compose.arr-stack.yml up -d --no-deps seerr        # v3.5.0
+docker compose -f docker-compose.tailscale.yml up -d tailscale               # hardened capabilities
+```
+
+Re-run `./setup-hooks.sh` if you use the pre-commit hook. `check-vpn.sh` keeps its contract (exit 0 means the VPN checked out), so a cron line or Kuma push monitor keeps working; its output wording has changed. Backups no longer leave a plain-text working copy in `/tmp`, but copies left by earlier versions stay until you delete them (`/tmp/arr-stack-backup-<date>` directories): check your latest archive first.
+
+### v1.13.5 → v1.14.0
+
+Twelve image bumps. Back up the config volumes first (Jellyfin 12.1's database migrations are one-way), then pull and recreate as usual. Pass only the services you mean to recreate, and never `--remove-orphans`:
+
+```bash
+cd $NAS_STACK_DIR && git pull
+docker compose -f docker-compose.arr-stack.yml pull sonarr radarr prowlarr bazarr jellyfin pihole
+docker compose -f docker-compose.arr-stack.yml up -d --no-deps sonarr radarr prowlarr bazarr jellyfin pihole
+```
+
+Do the same for `uptime-kuma beszel beszel-agent duc` in `docker-compose.utilities.yml`, and for `docker-compose.cloudflared.yml` and `docker-compose.tailscale.yml` if you run them. Jellyfin is ready when its log says `Startup complete`, not when the healthcheck turns green. Recreating Pi-hole drops DNS for your network for a few seconds.
+
+Two things may need a hand:
+
+- **Sonarr, Radarr or Prowlarr asks for a login at its `.lan` address.** They now trust forwarded headers only from their *Trusted Networks* setting, so *Authentication Required: Disabled for Local Addresses* no longer applies through Traefik. Set Settings → General → Security → Authentication Required to **Enabled**. Don't add `172.20.0.0/24` to Trusted Networks: Cloudflare Tunnel traffic arrives from inside it.
+- **configarr no longer runs on `up -d`.** Run it on purpose with `docker compose -f docker-compose.utilities.yml run --rm -e DRY_RUN=true configarr` (drop `DRY_RUN` to apply). If your `configarr/config.yml` came from the example before this release, change `base_url` from `http://gluetun:8989` / `:7878` to `http://sonarr:8989` / `http://radarr:7878`, dry-run, and read what it would change first: it has not reached Sonarr or Radarr since v1.7.23, and it will create the profiles your config names.
+
+### v1.13.4 → v1.13.5
+
+Recreate Seerr so it picks up its new start command:
+
+```bash
+cd $NAS_STACK_DIR && git pull
+docker compose -f docker-compose.arr-stack.yml up -d seerr
+```
+
+That clears the "/app/config volume mount was not configured properly" banner if you had it. Your Seerr settings, users and requests are untouched.
+
+### v1.13.3 → v1.13.4
+
+Nothing to recreate; one Jellyfin setup step, described in [APP-CONFIG.md §4.1 step 4](APP-CONFIG.md#41-jellyfin-media-server): install the TheTVDB plugin, restart, tick *Import season name*, and move TheTVDB above TheMovieDb for Series, Seasons and Episodes in the TV library. Shows already in the library keep their current metadata and artwork; refresh an individual show with *Replace all images* if TMDB had mislabelled it.
+
+### v1.13.2 → v1.13.3
+
+Nothing to recreate. `configure-apps.sh` gained a Seerr step that points its TV and anime metadata at TVDB, so the seasons Seerr offers are the seasons Sonarr fetches. Apply it to a running stack with:
+
+```bash
+cd $NAS_STACK_DIR && git pull
+./scripts/configure-apps.sh --only seerr
+```
+
+It is idempotent and touches nothing else. Anime that Seerr previously showed as one season may now show several (TVDB's numbering, which is what Sonarr uses); existing requests are unaffected.
+
+### v1.13.1 → v1.13.2
+
+Nothing to recreate: this release adds a script, tests and docs. `git pull` and carry on. If you want audiobooks on the Jellyfin TV app, add the Music library and the cron entry described in [MAINTENANCE.md](MAINTENANCE.md#audiobooks-on-the-tv) — both are opt-in; the web's Books library is unchanged.
+
+### v1.13.0 → v1.13.1
+
+One image pin. Pull and recreate uptime-kuma (its data volume is small; back it up first if you like):
+
+```bash
+cd $NAS_STACK_DIR && git pull
+docker compose -f docker-compose.utilities.yml up -d uptime-kuma
+```
+
+### v1.12.2 → v1.13.0
+
+The three core compose files now pin `name: arr-stack`. If your deploy directory is already called `arr-stack` (the documented layout, `$NAS_STACK_DIR=/volume1/docker/arr-stack`) nothing changes — `git pull` and carry on. Volumes are unaffected either way; they have had explicit names since 1.7.
+
+If your directory is called something else, the project name changes on your next `up`, and Compose will refuse to start containers whose names already belong to the old project. Two ways through:
+
+- **Keep your old name (no migration):** add `COMPOSE_PROJECT_NAME=<your-directory-name>` to `.env`. The environment overrides the `name:` key.
+- **Adopt `arr-stack`:** the containers have to be recreated under the new project, and that means `down` — the one exception to the core file's own banner. Pi-hole goes down with it, so anything on your network that uses it for DNS loses resolution until `up` completes: pull first while DNS still works, then take the files down in reverse order (the shared `arr-stack` network belongs to the core file and cannot be removed while traefik or the utilities are still attached), then bring them up. Named volumes survive `down`.
+
+  ```bash
+  OLD=$(basename "$PWD")
+  for f in docker-compose.arr-stack.yml docker-compose.traefik.yml docker-compose.utilities.yml; do docker compose -f "$f" pull; done
+  for f in docker-compose.utilities.yml docker-compose.traefik.yml docker-compose.arr-stack.yml; do docker compose -p "$OLD" -f "$f" down; done
+  for f in docker-compose.arr-stack.yml docker-compose.traefik.yml docker-compose.utilities.yml; do docker compose -f "$f" up -d; done
+  ```
+
+  If a container from another compose project sits on the `arr-stack` network (CLAUDE.md's neighbouring project does), the network cannot be removed and `up` adopts it with a warning about the old project label. That is harmless; the label clears when that container is next recreated.
+
+CI is new (`.github/workflows/ci.yml`); nothing to do for it on the NAS.
+
+### v1.12.1 → v1.12.2
+
+Jellyfin's mount widens from `/data/media` to the whole data root (read-only), so a Books library can index the `other` download lane. Pull and recreate Jellyfin:
+
+```bash
+cd $NAS_STACK_DIR && git pull
+docker compose -f docker-compose.arr-stack.yml up -d jellyfin
+docker logs -f jellyfin 2>&1 | grep -m1 "Startup complete"   # the healthcheck goes green early on 12.0
+```
+
+Then, if you want audiobooks grabbed via Prowlarr to appear in Jellyfin: Dashboard → Libraries → add (or edit) a *Books* library with folders `/data/media/audiobooks`, `/data/usenet/complete/other` and `/data/torrents/other` — [APP-CONFIG.md § 4.1](APP-CONFIG.md#41-jellyfin-media-server).
+
+### v1.12.0 → v1.12.1
+
+Two routine image bumps and one folder fix. Pull, recreate the two bumped containers, re-run the script:
+
+```bash
+cd $NAS_STACK_DIR && git pull
+docker compose -f docker-compose.arr-stack.yml up -d flaresolverr
+docker compose -f docker-compose.cloudflared.yml up -d cloudflared   # only if you run the tunnel
+./scripts/configure-apps.sh
+```
+
+The script corrects SABnzbd's `other` category, which 1.12.0 created with an empty folder: Prowlarr search-page grabs now land in `<complete_dir>/other/` as documented. Anything that already completed sits directly in the completed folder — move it by hand.
+
+### v1.11.0 → v1.12.0
+
+No compose changes. Pull, then re-run the configuration script — it is what changed:
+
+```bash
+cd $NAS_STACK_DIR && git pull
+./scripts/configure-apps.sh --dry-run   # shows exactly what would change
+./scripts/configure-apps.sh
+```
+
+What to expect from the Bazarr section: it now manages one subtitle profile — the one named **English**, or an existing profile whose languages are exactly English whatever it's called — points both series/movie defaults at that profile's real id, and leaves any other profiles alone. On a stack configured by earlier versions this is a no-op ("already configured" throughout). If you want a different language set, `SUBTITLE_LANGUAGES="en fr" ./scripts/configure-apps.sh` — the script owns that one profile's contents. Bazarr is no longer restarted after the section; it applies settings inside each write.
+
+New on the command line: `--only <section>` runs one section and touches nothing else, and `BAZARR_CONTAINER=<name> --only bazarr` is a genuinely isolated way to test the section against a throwaway. Prowlarr's search page can now download directly (category `other`, see [APP-CONFIG.md § 4.6](APP-CONFIG.md#46-prowlarr-indexer-manager)); the script creates the category in qBittorrent and SABnzbd and adds both as Prowlarr's own clients.
+
+### v1.10.1 → v1.11.0
+
+Hardening against poisoned public-indexer results, a `--dry-run` that works, and image bumps including **Jellyfin 12.0** — a major version that rewrites its database on first start. Order matters: fix Jellyfin's config *before* the new image boots.
+
+#### 1. Pull
+
+```bash
+cd $NAS_STACK_DIR && git pull
+```
+
+#### 2. Jellyfin: fix the preset before 12.0 starts
+
+12.0 refuses to parse the `encoding.xml` that 10.11 writes when the encoder preset was never touched — `<EncoderPreset xsi:nil="true" />` is an empty value to its stricter parser. It logs one line, `[ERR] Error loading configuration file: /config/config/encoding.xml`, then **rewrites the file with defaults**: hardware acceleration `none`, VPP tonemapping off, HEVC encoding off, hevc/vp9/vp8/mpeg2 dropped from hardware decoding. Playback keeps working — in software — so nothing alerts you.
+
+Back up the config volume first (a 4 GB volume took ~13 minutes on the NAS), then fix the preset with Jellyfin stopped:
+
+```bash
+docker run --rm -v arr-stack_jellyfin-config:/src:ro -v /path/to/backups:/bak alpine \
+  tar czf /bak/jellyfin-config-backup-$(date +%Y%m%d-%H%M%S).tgz -C /src .
+docker stop jellyfin
+docker run --rm -v arr-stack_jellyfin-config:/src alpine \
+  sed -i 's|<EncoderPreset xsi:nil="true" />|<EncoderPreset>auto</EncoderPreset>|' /src/config/encoding.xml
+```
+
+Already on 12.0 and transcoding has quietly moved to the CPU? Compare `/config/config/encoding.xml` with your backup's copy and put the values back, or re-enter them in Dashboard → Playback → Transcoding.
+
+#### 3. Recreate, and wait for the log — not the healthcheck
+
+```bash
+docker compose -f docker-compose.arr-stack.yml up -d
+docker logs -f jellyfin 2>&1 | grep -m1 "Startup complete"
+```
+
+`/health` answered 200 about ten seconds into a migration that took 3m41s, so `docker ps` reports healthy long before the server is usable. Seerr logs a `503` if its sync lands in that window; it recovers on the next run.
+
+#### 4. Re-run the configuration script
+
+```bash
+./scripts/configure-apps.sh --dry-run   # preview — this now reports real deltas
+./scripts/configure-apps.sh
+```
+
+Two new steps: qBittorrent's executable exclusion list (`*.exe`, `*.scr`, … rejected at the metadata stage, before any bytes transfer), and Bazarr's subtitle languages — the script now manages one profile (named English, or adopted by contents), points both defaults at it and enforces what it contains. Bazarr applies each write immediately; nothing restarts.
+
+#### 5. Optional: indexer hygiene and a standing scan
+
+Using public torrent indexers? Read the note in [APP-CONFIG.md § 4.6](APP-CONFIG.md#46-prowlarr-indexer-manager) on what hit this stack and how to rank them. `scripts/scan-executables.sh` reports any executables already sitting under `/data`; [MAINTENANCE.md](MAINTENANCE.md#executable-scan) has the cron line.
 
 ### v1.7.9 → v1.7.10
 

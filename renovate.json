@@ -1,19 +1,41 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "forkProcessing": "enabled",
+  "automerge": false,
   "timezone": "Europe/London",
-  "schedule": ["before 9am on Monday"],
-  "labels": ["dependencies"],
+  "labels": [
+    "dependencies"
+  ],
   "packageRules": [
     {
       "description": "Group all LinuxServer.io image updates",
-      "matchDatasources": ["docker"],
-      "matchPackagePatterns": ["^lscr\\.io/linuxserver/"],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "/^lscr\\.io/linuxserver//"
+      ],
       "groupName": "LinuxServer.io images"
     },
     {
+      "description": "qBittorrent's registry still carries 14.x and 20.04.x tags from old LinuxServer builds; they sort above 5.x but are years older. Real majors are single digits",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "lscr.io/linuxserver/qbittorrent"
+      ],
+      "allowedVersions": "/^[4-9]\\./"
+    },
+    {
       "description": "Group infrastructure images (Gluetun, Traefik, Cloudflared, Pi-hole)",
-      "matchDatasources": ["docker"],
+      "matchDatasources": [
+        "docker"
+      ],
       "matchPackageNames": [
         "qmcgaw/gluetun",
         "traefik",
@@ -24,23 +46,20 @@
     },
     {
       "description": "Group monitoring/utility images",
-      "matchDatasources": ["docker"],
+      "matchDatasources": [
+        "docker"
+      ],
       "matchPackageNames": [
         "henrygd/beszel",
         "henrygd/beszel-agent",
         "louislam/uptime-kuma",
-        "crazymax/diun",
         "qmcgaw/deunhealth",
         "mkoestler/duc-service"
       ],
       "groupName": "Utility images"
-    },
-    {
-      "description": "Auto-merge patch updates for stable media services",
-      "matchDatasources": ["docker"],
-      "matchPackagePatterns": ["^lscr\\.io/linuxserver/"],
-      "matchUpdateTypes": ["patch"],
-      "automerge": true
     }
+  ],
+  "prBodyNotes": [
+    "**Test on the NAS before merging.** Check out this branch on the NAS, recreate the affected services through their own compose files (never `--remove-orphans`), verify them and run `npm run test:e2e`. See CLAUDE.md, *Deploying to the NAS*."
   ]
 }

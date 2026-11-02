@@ -1,6 +1,6 @@
 # Pharkie's Ultimate Arr Stack for Ugreen and Beyond
 
-[![GitHub release](https://img.shields.io/github/v/release/Pharkie/ultimate-arr-stack)](https://github.com/Pharkie/ultimate-arr-stack/releases)
+[![GitHub release](https://img.shields.io/github/v/release/Pharkie/ultimate-arr-stack)](https://github.com/Pharkie/ultimate-arr-stack/releases) [![CI](https://github.com/Pharkie/ultimate-arr-stack/actions/workflows/ci.yml/badge.svg)](https://github.com/Pharkie/ultimate-arr-stack/actions/workflows/ci.yml)
 
 <img align="right" width="45%" src="docs/images/demo/demo.gif">
 
@@ -83,16 +83,7 @@ This code was generated with [Claude Code](https://claude.ai/claude-code) (Anthr
 
 ## License
 
-**Noncommercial**, with the right instrument for each kind of material — see [LICENSE](LICENSE) for the full picture:
-
-| What | Licence |
-|---|---|
-| Code — compose files, scripts, tests, hooks | [PolyForm Noncommercial 1.0.0](LICENSE-code) |
-| Documentation — prose, guides, README, `docs/` | [CC BY-NC 4.0](LICENSE-docs) |
-
-In short: use it, change it, share it, **provided you credit the source and don't use it commercially**.
-
-Four test and script files remain under CC BY-NC 4.0 rather than PolyForm, because they were contributed by someone else and relicensing another author's copyright isn't ours to do without asking. They're listed in [LICENSE](LICENSE) and each carries a notice.
+[PolyForm Noncommercial 1.0.0](LICENSE)
 
 **This is forward-only.** Every copy already distributed under CC BY-NC 4.0 — including all existing forks — keeps those terms permanently. Nothing is withdrawn from anyone.
 
