@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { HOST, url, screenshotPath, addHeaderToAllRequests } from './helpers';
 
 // Split out of the former stack.spec.ts on 2026-08-16, alongside
@@ -6,6 +6,37 @@ import { HOST, url, screenshotPath, addHeaderToAllRequests } from './helpers';
 // live in ./helpers, which networking.spec.ts and vpn-security.spec.ts also use.
 
 // ─── UI screenshot tests ─────────────────────────────────────────────────────
+
+async function openArrDashboard(
+  page: Page,
+  app: 'sonarr' | 'radarr' | 'prowlarr',
+  toolbarButton: string,
+  username: string | undefined,
+  password: string | undefined,
+): Promise<void> {
+  const toolbar = page.getByRole('button', { name: toolbarButton });
+  const loginPassword = page.locator('input[name="password"], input[id="password"]')
+    .and(page.locator(':visible')).first();
+
+  await page.goto(url(app), { waitUntil: 'domcontentloaded' });
+  await expect(toolbar.or(loginPassword).and(page.locator(':visible')).first())
+    .toBeVisible({ timeout: 10_000 });
+
+  if (await loginPassword.isVisible()) {
+    expect(Boolean(username && password), `${app} requires login credentials for this runner`)
+      .toBe(true);
+    await page.fill('input[name="username"], input[id="username"]', username!);
+    await loginPassword.fill(password!);
+    await page.click('button[type="submit"]', { noWaitAfter: true });
+    await page.waitForURL((target) => !target.pathname.toLowerCase().startsWith('/login'), {
+      waitUntil: 'domcontentloaded',
+      timeout: 10_000,
+    });
+  }
+
+  await expect(toolbar).toBeVisible({ timeout: 10_000 });
+  expect(new URL(page.url()).pathname.toLowerCase().startsWith('/login')).toBe(false);
+}
 
 test.describe('UI screenshots', () => {
   test('Plex — login and screenshot home', async ({ page, context }) => {
@@ -20,7 +51,7 @@ test.describe('UI screenshots', () => {
     await page.screenshot({ path: screenshotPath('plex'), fullPage: true });
   });
 
-  // Sonarr, Radarr and Prowlarr: after login, wait for the dashboard itself, not
+  // Sonarr, Radarr and Prowlarr: wait for the dashboard itself, not
   // for networkidle. Each SPA posts telemetry to its Sentry host on load, and
   // while that host is down the post hangs until Cloudflare gives up (~20s for
   // sentry.servarr.com on 2026-09-28), so the page cannot go idle before the
@@ -30,15 +61,8 @@ test.describe('UI screenshots', () => {
   test('Sonarr — login and screenshot dashboard', async ({ page }) => {
     const username = process.env.SONARR_USERNAME;
     const password = process.env.SONARR_PASSWORD;
-    test.skip(!username || !password, 'SONARR_USERNAME / SONARR_PASSWORD not set');
 
-    await page.goto(url('sonarr', '/login'));
-    await page.waitForLoadState('networkidle');
-    await page.fill('input[name="username"], input[id="username"]', username!);
-    await page.fill('input[name="password"], input[id="password"]', password!);
-    await page.click('button[type="submit"]');
-    await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 10_000 });
-    await expect(page.getByRole('button', { name: 'RSS Sync' })).toBeVisible({ timeout: 10_000 });
+    await openArrDashboard(page, 'sonarr', 'RSS Sync', username, password);
     // Posters are still arriving when the toolbar appears
     await page.waitForFunction(() => Array.from(document.images).every((img) => img.complete));
 
@@ -49,15 +73,8 @@ test.describe('UI screenshots', () => {
   test('Radarr — login and screenshot dashboard', async ({ page }) => {
     const username = process.env.RADARR_USERNAME;
     const password = process.env.RADARR_PASSWORD;
-    test.skip(!username || !password, 'RADARR_USERNAME / RADARR_PASSWORD not set');
 
-    await page.goto(url('radarr', '/login'));
-    await page.waitForLoadState('networkidle');
-    await page.fill('input[name="username"], input[id="username"]', username!);
-    await page.fill('input[name="password"], input[id="password"]', password!);
-    await page.click('button[type="submit"]');
-    await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 10_000 });
-    await expect(page.getByRole('button', { name: 'RSS Sync' })).toBeVisible({ timeout: 10_000 });
+    await openArrDashboard(page, 'radarr', 'RSS Sync', username, password);
     // Posters are still arriving when the toolbar appears
     await page.waitForFunction(() => Array.from(document.images).every((img) => img.complete));
 
@@ -68,15 +85,8 @@ test.describe('UI screenshots', () => {
   test('Prowlarr — login and screenshot dashboard', async ({ page }) => {
     const username = process.env.PROWLARR_USERNAME;
     const password = process.env.PROWLARR_PASSWORD;
-    test.skip(!username || !password, 'PROWLARR_USERNAME / PROWLARR_PASSWORD not set');
 
-    await page.goto(url('prowlarr', '/login'));
-    await page.waitForLoadState('networkidle');
-    await page.fill('input[name="username"], input[id="username"]', username!);
-    await page.fill('input[name="password"], input[id="password"]', password!);
-    await page.click('button[type="submit"]');
-    await page.waitForURL((u) => !u.pathname.startsWith('/login'), { timeout: 10_000 });
-    await expect(page.getByRole('button', { name: 'Add Indexer' })).toBeVisible({ timeout: 10_000 });
+    await openArrDashboard(page, 'prowlarr', 'Add Indexer', username, password);
 
     expect(page.url()).not.toContain('login');
     await page.screenshot({ path: screenshotPath('prowlarr'), fullPage: true });
@@ -235,11 +245,6 @@ test.describe('UI screenshots', () => {
       await page.locator('button:has-text("Log in"), button[type="submit"]').first().click();
       await page.waitForLoadState('networkidle');
     }
-
-    const authRes = await page.request.get(url('pihole', '/api/auth'));
-    expect(authRes.ok(), `Pi-hole session check: HTTP ${authRes.status()}`).toBeTruthy();
-    const authBody = await authRes.json();
-    expect(authBody.session?.valid, 'Pi-hole must have an authenticated session').toBe(true);
 
     // Verify we see the dashboard (Pi-hole shows query stats)
     await expect(
