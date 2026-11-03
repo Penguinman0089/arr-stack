@@ -127,7 +127,12 @@ test.describe('UI screenshots', () => {
     await page.waitForLoadState('networkidle');
 
     // Verify we see VueTorrent (not a login page)
-    await expect(page.getByText('TORRENTS').or(page.getByText('VueTorrent')).first()).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByText('TORRENTS')
+        .or(page.getByText('VueTorrent'))
+        .and(page.locator(':visible'))
+        .first(),
+    ).toBeVisible({ timeout: 10_000 });
     await page.screenshot({ path: screenshotPath('qbittorrent'), fullPage: true });
   });
 
@@ -226,6 +231,11 @@ test.describe('UI screenshots', () => {
       await page.locator('button:has-text("Log in"), button[type="submit"]').first().click();
       await page.waitForLoadState('networkidle');
     }
+
+    const authRes = await page.request.get(url('pihole', '/api/auth'));
+    expect(authRes.ok(), `Pi-hole session check: HTTP ${authRes.status()}`).toBeTruthy();
+    const authBody = await authRes.json();
+    expect(authBody.session?.valid, 'Pi-hole must have an authenticated session').toBe(true);
 
     // Verify we see the dashboard (Pi-hole shows query stats)
     await expect(
