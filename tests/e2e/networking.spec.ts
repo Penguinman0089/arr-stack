@@ -23,7 +23,9 @@ const ROUTED_HOSTS = [...fs.readFileSync(LOCAL_SERVICES, 'utf8').matchAll(/Host\
 // What each host must answer with. A marker only that app serves, so Traefik's
 // own 404, or a route to the wrong backend, cannot pass as routed. `optional`
 // names the container of a utility that may not be deployed at all.
-type Route = { path: string; marker: RegExp; optional?: string } | { path: string; redirect: string };
+type Route =
+  | { path: string; marker: RegExp; optional?: string; apiKeyVar?: string }
+  | { path: string; redirect: string };
 const ROUTES: Record<string, Route> = {
   'plex.lan': { path: '/identity', marker: /<MediaContainer\b/ },
   'seerr.lan': { path: '/login', marker: /<title[^>]*>[^<]*Seerr<\/title>/ },
@@ -32,10 +34,14 @@ const ROUTES: Record<string, Route> = {
   'sonarr.lan': { path: '/login', marker: /<title>[^<]*Sonarr<\/title>/ },
   'radarr.lan': { path: '/login', marker: /<title>[^<]*Radarr<\/title>/ },
   'prowlarr.lan': { path: '/login', marker: /<title>[^<]*Prowlarr<\/title>/ },
-  'bazarr.lan': { path: '/', marker: /<title>Bazarr<\/title>/ },
+  'bazarr.lan': {
+    path: '/api/system/status',
+    marker: /"bazarr_version"\s*:/,
+    apiKeyVar: 'BAZARR_API_KEY',
+  },
   'lidarr.lan': { path: '/login', marker: /<title>[^<]*Lidarr<\/title>/, optional: 'lidarr' },
   'readarr.lan': { path: '/login', marker: /<title>[^<]*Readarr<\/title>/, optional: 'readarr' },
-  'audiobookshelf.lan': { path: '/login', marker: /<title[^>]*>[^<]*Audiobookshelf<\/title>/i, optional: 'audiobookshelf' },
+  'audiobookshelf.lan': { path: '/login/', marker: /<title[^>]*>[^<]*Audiobookshelf<\/title>/i, optional: 'audiobookshelf' },
   'qbit.lan': { path: '/', marker: /<title>(VueTorrent|qBittorrent[^<]*)<\/title>/ },
   'sabnzbd.lan': { path: '/', marker: /SABnzbd/ },
   'traefik.lan': { path: '/dashboard/', marker: /<title>Traefik[^<]*<\/title>/ },
@@ -106,8 +112,14 @@ test.describe('Networking', () => {
 
       expect(await resolveViaPihole(host), `Pi-hole does not answer ${host} with Traefik's LAN IP`).toEqual([TRAEFIK_LAN_IP]);
 
+      const headers: Record<string, string> = { Host: host };
+      if ('apiKeyVar' in route && route.apiKeyVar) {
+        const apiKey = process.env[route.apiKeyVar];
+        expect(apiKey, `${route.apiKeyVar} is required to verify ${host}`).toBeTruthy();
+        headers['X-API-KEY'] = apiKey!;
+      }
       const res = await request.get(`http://${TRAEFIK_LAN_IP}${route.path}`, {
-        headers: { Host: host },
+        headers,
         maxRedirects: 0,
         timeout: 15_000,
       });
