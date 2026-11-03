@@ -1,0 +1,12 @@
+*.sh text eol=lf
+
+*.bash text eol=lf
+
+*.bats text eol=lf
+
+scripts/pre-commit text eol=lf
+
+qbittorrent/custom-services.d/* text eol=lf
+
+docker-compose*.yml text eol=lf
+.env.example text eol=lf
