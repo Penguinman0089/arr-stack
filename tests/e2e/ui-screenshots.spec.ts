@@ -126,13 +126,17 @@ test.describe('UI screenshots', () => {
     await page.goto(url('qbittorrent'));
     await page.waitForLoadState('networkidle');
 
-    // Verify we see VueTorrent (not a login page)
+    // Verify standard qBittorrent or VueTorrent, not a login page.
+    await expect(page).toHaveTitle(/qBittorrent|VueTorrent/i);
     await expect(
-      page.getByText('TORRENTS')
+      page.getByText(/^Transfers$/i)
+        .or(page.getByText('TORRENTS'))
         .or(page.getByText('VueTorrent'))
         .and(page.locator(':visible'))
         .first(),
     ).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator('input[type="password"]').and(page.locator(':visible')))
+      .toHaveCount(0);
     await page.screenshot({ path: screenshotPath('qbittorrent'), fullPage: true });
   });
 
