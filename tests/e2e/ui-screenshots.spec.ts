@@ -91,7 +91,22 @@ test.describe('UI screenshots', () => {
     const loginRes = await page.request.post(url('qbittorrent', '/api/v2/auth/login'), {
       form: { username, password },
     });
-    expect(loginRes.ok()).toBeTruthy();
+    expect([200, 204], 'qBittorrent login returned an unexpected HTTP status')
+      .toContain(loginRes.status());
+    if (loginRes.status() === 200) {
+      const loginAccepted = (await loginRes.text()).trim() === 'Ok.';
+      expect(loginAccepted, 'qBittorrent did not accept the supplied credentials').toBeTruthy();
+    } else {
+      test.info().annotations.push({
+        type: 'authentication',
+        description: 'Subnet whitelist authorized the runner; credentials were not checked.',
+      });
+    }
+    const versionRes = await page.request.get(url('qbittorrent', '/api/v2/app/version'));
+    expect(versionRes.status(), 'qBittorrent version API is not authorized').toBe(200);
+    const versionRecognized = /^v?\d+\.\d+\.\d+[a-z0-9.+-]*$/i
+      .test((await versionRes.text()).trim());
+    expect(versionRecognized, 'qBittorrent version API did not return a version').toBeTruthy();
 
     // Transfer cookies from API context to browser context
     const cookies = (await loginRes.headersArray())

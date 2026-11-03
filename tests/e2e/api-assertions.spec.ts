@@ -18,9 +18,10 @@ import { url, requireStackReachable, dockerExec, assertDownloadClientsHealthy, r
 // ─── API assertion tests ─────────────────────────────────────────────────────
 
 test.describe('API assertions', () => {
-  test('Radarr — root folder is /data/media/movies', async ({ request }) => {
+  test('Radarr — configured root folder is accessible', async ({ request }) => {
     const apiKey = process.env.RADARR_API_KEY;
     test.skip(!apiKey, 'RADARR_API_KEY not set');
+    const expectedRootFolder = process.env.E2E_RADARR_ROOT_FOLDER || '/data/media/movies';
 
     const res = await request.get(url('radarr', '/api/v3/rootfolder'), {
       headers: { 'X-Api-Key': apiKey! },
@@ -29,14 +30,15 @@ test.describe('API assertions', () => {
     const folders = await res.json();
     expect(folders).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: '/data/media/movies', accessible: true }),
+        expect.objectContaining({ path: expectedRootFolder, accessible: true }),
       ]),
     );
   });
 
-  test('Sonarr — root folder is /data/media/tv', async ({ request }) => {
+  test('Sonarr — configured root folder is accessible', async ({ request }) => {
     const apiKey = process.env.SONARR_API_KEY;
     test.skip(!apiKey, 'SONARR_API_KEY not set');
+    const expectedRootFolder = process.env.E2E_SONARR_ROOT_FOLDER || '/data/media/tv';
 
     const res = await request.get(url('sonarr', '/api/v3/rootfolder'), {
       headers: { 'X-Api-Key': apiKey! },
@@ -45,7 +47,7 @@ test.describe('API assertions', () => {
     const folders = await res.json();
     expect(folders).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ path: '/data/media/tv', accessible: true }),
+        expect.objectContaining({ path: expectedRootFolder, accessible: true }),
       ]),
     );
   });
