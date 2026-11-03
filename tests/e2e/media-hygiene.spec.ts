@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import * as path from 'path';
 import { requireStackReachable, dockerExec } from './helpers';
 
 // Added 2026-09-10, after LimeTorrents served five poisoned results in one day:
@@ -11,16 +12,32 @@ import { requireStackReachable, dockerExec } from './helpers';
 // Inert on the NAS, which is Linux. Not inert one SMB browse away.
 //
 // This asserts the steady state rather than the defense: no executables under
-// /data, whatever combination of qBittorrent exclusions, *arr import checks and
-// manual cleanup got us there.
+// the configured media/download roots (default /data), whatever combination of
+// qBittorrent exclusions, *arr import checks and manual cleanup got us there.
 
 // Extensions mirror `excluded_names` in scripts/configure-apps.sh and PATTERNS
 // in scripts/scan-executables.sh. All three must be changed together.
 const EXECUTABLE_EXTENSIONS = ['exe', 'scr', 'bat', 'cmd', 'com', 'msi', 'lnk', 'vbs', 'ps1', 'jar'];
 
 test.describe('Media hygiene', () => {
-  test('no executable files anywhere under /data', () => {
+  test('no executable files under the configured media/download roots', () => {
     requireStackReachable(test.skip);
+
+    const scanRoots: unknown = JSON.parse(process.env.E2E_MEDIA_HYGIENE_ROOTS ?? '["/data"]');
+    if (
+      !Array.isArray(scanRoots) ||
+      scanRoots.length === 0 ||
+      !scanRoots.every((root) =>
+        typeof root === 'string' &&
+        (root === '/data' || root.startsWith('/data/')) &&
+        path.posix.normalize(root) === root,
+      )
+    ) {
+      throw new Error('E2E_MEDIA_HYGIENE_ROOTS must be a non-empty JSON array of /data paths');
+    }
+    for (const root of scanRoots) {
+      dockerExec('sonarr', ['test', '-d', root]);
+    }
 
     const findExpr = EXECUTABLE_EXTENSIONS.flatMap((ext, i) =>
       i === 0 ? ['-iname', `*.${ext}`] : ['-o', '-iname', `*.${ext}`],
@@ -30,7 +47,7 @@ test.describe('Media hygiene', () => {
     // service and sits on the bridge, so this does not depend on the VPN.
     const output = dockerExec(
       'sonarr',
-      ['find', '/data', '(', ...findExpr, ')', '-type', 'f'],
+      ['find', '-H', ...scanRoots, '(', ...findExpr, ')', '-type', 'f'],
       30_000,
     ).trim();
 
@@ -38,6 +55,6 @@ test.describe('Media hygiene', () => {
 
     // Name the files in the failure. "Expected 0, got 3" would send you hunting
     // for something this test already knows the path of.
-    expect(hits, `Executable file(s) found under /data:\n${hits.join('\n')}`).toEqual([]);
+    expect(hits, `Executable file(s) found under ${scanRoots.join(', ')}:\n${hits.join('\n')}`).toEqual([]);
   });
 });

@@ -139,10 +139,16 @@ services:
           g=$$(docker inspect -f '{{.State.StartedAt}}' gluetun 2>/dev/null) || return
           g=$$(printf %s "$$g" | cut -c1-19)
           for c in $$(docker ps -a --filter label=gluetun.dependent=true -q); do
+            name=$$(docker inspect -f '{{.Name}}' "$$c")
+            case ",$${GLUETUN_RECOVER_EXCLUDE:-}," in
+              *,"$${name#/}",*)
+                echo "gluetun-recover: skipping excluded$$name"
+                continue
+                ;;
+            esac
             state=$$(docker inspect -f '{{.State.Status}}' "$$c")
             started=$$(docker inspect -f '{{.State.StartedAt}}' "$$c" | cut -c1-19)
             if [ "$$state" = exited ] || before "$$started" "$$g"; then
-              name=$$(docker inspect -f '{{.Name}}' "$$c")
               echo "gluetun-recover: restarting$$name (state=$$state, stale netns)"
               # docker restart only works after a gluetun RESTART (same container
               # ID). After a gluetun RECREATE the dependent's HostConfig still
